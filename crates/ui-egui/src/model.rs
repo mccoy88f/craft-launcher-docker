@@ -1,7 +1,7 @@
 //! What the UI knows about each app.
 
-use artcraft_launcher_core::platform::{Platform, pick_asset};
-use artcraft_launcher_core::protocol::{JobPhase, LatestRelease, PausedDownload};
+use artcraft_launcher_core::platform::{Platform, pick_asset, web_bundle};
+use artcraft_launcher_core::protocol::{Capabilities, JobPhase, LatestRelease, PausedDownload};
 use artcraft_launcher_core::release::Release;
 use artcraft_launcher_core::status::{self, AppStatus, Latest};
 use artcraft_launcher_core::{CraftApp, Installed};
@@ -43,15 +43,23 @@ impl AppEntry {
         pick_asset(r, &stems, p, p.download_kinds()).is_some()
     }
 
-    pub fn status(&self, platform: Option<Platform>, manage_apps: bool) -> AppStatus {
-        if manage_apps && !self.detected {
+    /// Whether the latest release has a browser build (what a launcher server installs).
+    pub fn has_web_bundle(&self) -> bool {
+        let Some(r) = self.release() else { return false };
+        let stems: Vec<&str> = self.app.stems().collect();
+        web_bundle(r, &stems).is_some()
+    }
+
+    pub fn status(&self, platform: Option<Platform>, caps: Capabilities) -> AppStatus {
+        if caps.manage_apps && !self.detected {
             return AppStatus::Checking;
         }
+        let has_asset = || if caps.web_apps { self.has_web_bundle() } else { self.has_download(platform) };
         let latest = match &self.latest {
             None => Latest::Pending,
             Some(LatestRelease::Failed(_)) => Latest::Failed,
             Some(LatestRelease::None) => Latest::NoRelease,
-            Some(LatestRelease::Found(r)) => Latest::Found { version: r.version.as_ref(), has_asset: self.has_download(platform) },
+            Some(LatestRelease::Found(r)) => Latest::Found { version: r.version.as_ref(), has_asset: has_asset() },
         };
         status::status(self.installed.as_ref(), latest)
     }
@@ -82,10 +90,12 @@ pub enum Tone {
     Faint,
 }
 
-pub fn status_text(status: &AppStatus, manage_apps: bool) -> (String, Tone) {
+pub fn status_text(status: &AppStatus, caps: Capabilities) -> (String, Tone) {
     match status {
         AppStatus::Checking => (t("Checking…").to_string(), Tone::Faint),
-        AppStatus::Available if manage_apps => (t("Available to install").to_string(), Tone::Info),
+        // A launcher server's visitors can only open what its administrator installed.
+        AppStatus::Available if caps.manage_apps && !caps.install_apps => (t("Not available here").to_string(), Tone::Faint),
+        AppStatus::Available if caps.manage_apps => (t("Available to install").to_string(), Tone::Info),
         AppStatus::Available => (t("Available").to_string(), Tone::Info),
         AppStatus::UpToDate => (t("Installed · up to date").to_string(), Tone::Good),
         AppStatus::UpdateAvailable => (t("Update available").to_string(), Tone::Warn),
@@ -96,14 +106,14 @@ pub fn status_text(status: &AppStatus, manage_apps: bool) -> (String, Tone) {
 }
 
 /// [`status_text`], but saying so when a download is paused or reconnecting.
-pub fn entry_status_text(e: &AppEntry, status: &AppStatus, manage_apps: bool) -> (String, Tone) {
+pub fn entry_status_text(e: &AppEntry, status: &AppStatus, caps: Capabilities) -> (String, Tone) {
     match (e.job, e.paused) {
         (Some(JobPhase::Reconnecting { .. }), _) => (t("Reconnecting…").to_string(), Tone::Warn),
         (Some(JobPhase::Downloading { .. }), _) if status.is_installed() => (t("Updating…").to_string(), Tone::Info),
         (Some(JobPhase::Downloading { .. }), _) => (t("Downloading…").to_string(), Tone::Info),
         (None, Some(_)) if status.is_installed() => (t("Update paused").to_string(), Tone::Warn),
         (None, Some(_)) => (t("Download paused").to_string(), Tone::Warn),
-        _ => status_text(status, manage_apps),
+        _ => status_text(status, caps),
     }
 }
 

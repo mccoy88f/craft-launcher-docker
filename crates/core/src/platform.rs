@@ -224,6 +224,21 @@ pub fn pick_asset<'a>(release: &'a Release, stems: &[&str], platform: Platform, 
     None
 }
 
+/// The browser build of an app in `release`: `<stem>-web-<version>.zip`, a static site that runs
+/// the app in WebAssembly. A launcher server installs this one (`apps/artcraft-launcher-server`).
+pub fn web_bundle<'a>(release: &'a Release, stems: &[&str]) -> Option<&'a Asset> {
+    release.assets.iter().find(|a| web_bundle_version(&a.name, stems).is_some())
+}
+
+/// The version in a `<stem>-web-<version>.zip` name; `None` for anything else.
+pub fn web_bundle_version<'a>(name: &'a str, stems: &[&str]) -> Option<&'a str> {
+    let base = name.strip_suffix(".zip")?;
+    stems.iter().find_map(|stem| {
+        let version = base.strip_prefix(stem)?.strip_prefix("-web-")?;
+        (version.starts_with(|c: char| c.is_ascii_digit()) && crate::version::parse(version).is_some()).then_some(version)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +281,18 @@ mod tests {
         // FigCraft also ships its collaboration server; that tarball is not the app.
         assert_eq!(parse_asset_name("figcraft-server-0.5.1-linux-x86_64.tar.gz", &["figcraft"]), None);
         assert!(parse_asset_name("figcraft-0.5.1-linux-x86_64.tar.gz", &["figcraft"]).is_some());
+    }
+
+    #[test]
+    fn finds_the_web_bundle() {
+        let r = release(PHOTO);
+        assert_eq!(web_bundle(&r, &["photocraft"]).map(|a| a.name.as_str()), Some("photocraft-web-0.5.0.zip"));
+        assert_eq!(web_bundle_version("printcraft-web-0.2.1-rc.1.zip", &["pdfcraft", "printcraft"]), Some("0.2.1-rc.1"));
+        for other in ["photocraft-web-latest.zip", "photocraft-web-.zip", "photocraft-web-0.5.0.tar.gz", "photocraft-0.5.0-windows-x64-portable.zip"]
+        {
+            assert_eq!(web_bundle_version(other, &["photocraft"]), None, "{other}");
+        }
+        assert_eq!(web_bundle(&release(&["photocraft-0.5.0-macos-universal.dmg"]), &["photocraft"]), None);
     }
 
     #[test]

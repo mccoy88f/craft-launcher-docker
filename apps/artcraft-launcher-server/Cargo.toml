@@ -1,0 +1,27 @@
+[package]
+name = "artcraft-launcher-server"
+description = "ArtCraft Launcher server: hosts the Craft Apps' browser builds and the launcher's web page, for docker compose behind a domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+artcraft-launcher-core = { workspace = true }
+artcraft-launcher-native = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "sync"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-http = { version = "0.6", default-features = false, features = ["fs"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"

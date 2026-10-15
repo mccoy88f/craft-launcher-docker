@@ -1,0 +1,49 @@
+# ArtCraft Launcher on your own domain: the launcher server plus Caddy for HTTPS.
+#
+#   cd packaging/docker
+#   cp .env.example .env      # then set DOMAIN and ARTCRAFT_ADMIN_PASSWORD
+#   docker compose up -d --build
+#
+# Visitors open https://<DOMAIN>/, the administrator https://<DOMAIN>/admin/. See README.md.
+name: artcraft-launcher
+
+services:
+  launcher:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: artcraft-launcher-server:local
+    restart: unless-stopped
+    environment:
+      ARTCRAFT_ADMIN_USER: ${ARTCRAFT_ADMIN_USER:-admin}
+      ARTCRAFT_ADMIN_PASSWORD: ${ARTCRAFT_ADMIN_PASSWORD:?set ARTCRAFT_ADMIN_PASSWORD in .env}
+      ARTCRAFT_CHECK_MINUTES: ${ARTCRAFT_CHECK_MINUTES:-30}
+      # Optional: raises GitHub's limit from 60 to 5000 requests an hour (no scopes needed).
+      ARTCRAFT_LAUNCHER_GITHUB_TOKEN: ${ARTCRAFT_LAUNCHER_GITHUB_TOKEN:-}
+    volumes:
+      - launcher-data:/data
+    # Only Caddy talks to it. To use a reverse proxy you already run instead of Caddy, remove the
+    # caddy service and publish this port on loopback: ports: ["127.0.0.1:8080:8080"]
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - launcher
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  launcher-data:
+  caddy-data:
+  caddy-config:

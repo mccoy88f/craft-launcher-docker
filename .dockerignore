@@ -1,0 +1,8 @@
+# Keep the build context to the sources (see Dockerfile).
+.git
+target
+dist
+builds
+temp
+craft-fonts
+**/*~

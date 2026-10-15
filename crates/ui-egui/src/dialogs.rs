@@ -193,7 +193,9 @@ impl LauncherUi {
         let title_height = ui.cursor().top() - title_top;
         let quit_width = widgets::button_width(ui, tl!("Quit ArtCraft Launcher"), 0.0);
         let done_width = widgets::button_width(ui, tl!("Done"), 90.0);
-        let stack_actions = self.caps.manage_apps && quit_width + done_width + ui.spacing().item_spacing.x > ui.available_width();
+        // A browser tab has nothing to quit.
+        let can_quit = self.caps.manage_apps && !self.caps.web_apps;
+        let stack_actions = can_quit && quit_width + done_width + ui.spacing().item_spacing.x > ui.available_width();
         let footer_height = if stack_actions { 2.0 * theme::CONTROL_H + ui.spacing().item_spacing.y } else { theme::CONTROL_H };
         let body_height = (viewport.height() - 80.0 - title_height - footer_height - 24.0 - ui.spacing().item_spacing.y).max(0.0);
         egui::ScrollArea::vertical().id_salt("settings-body").max_height(body_height).auto_shrink([false, true]).show(ui, |ui| {
@@ -203,7 +205,7 @@ impl LauncherUi {
         ui.add_space(24.0);
         let mut close = false;
         let quit = |ui: &mut egui::Ui, host: &mut dyn Host| {
-            if self.caps.manage_apps && widgets::button(ui, tl!("Quit ArtCraft Launcher"), Kind::Secondary, 0.0).clicked() {
+            if can_quit && widgets::button(ui, tl!("Quit ArtCraft Launcher"), Kind::Secondary, 0.0).clicked() {
                 host.quit();
             }
         };
@@ -276,7 +278,7 @@ impl LauncherUi {
             });
         });
         self.settings.check_every = every;
-        if self.caps.manage_apps
+        if self.caps.install_apps
             && ui.checkbox(&mut self.settings.auto_update, tl!("Automatically download and install updates")).changed()
             && self.settings.auto_update
         {
@@ -285,7 +287,7 @@ impl LauncherUi {
         ui.checkbox(&mut self.settings.notify, tl!("Notify me when an installed app has an update"));
         ui.checkbox(&mut self.settings.prereleases, tl!("Include pre-releases (betas and release candidates)"));
 
-        if self.caps.manage_apps && self.platform.is_some_and(|p| p.os == Os::Linux) {
+        if self.caps.manage_apps && !self.caps.web_apps && self.platform.is_some_and(|p| p.os == Os::Linux) {
             section(ui, tl!("Installing on Linux"));
             let is_flatpak = crate::settings::is_flatpak_sandbox();
             let is_appimage = crate::settings::is_appimage();
@@ -321,7 +323,7 @@ impl LauncherUi {
             ui.label(RichText::new(tl!("Updates always use the format an app was installed with.")).size(12.0).color(t.muted));
         }
 
-        if self.caps.manage_apps {
+        if self.caps.manage_apps && !self.caps.web_apps {
             section(ui, tl!("Running in the background"));
             if host.has_tray() {
                 ui.checkbox(&mut self.settings.close_to_tray, tl!("Keep running in the tray when the window is closed"));

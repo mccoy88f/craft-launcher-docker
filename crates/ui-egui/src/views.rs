@@ -217,7 +217,7 @@ impl LauncherUi {
                 filters.into_iter().map(|(f, label, tip, highlight)| (f, Cell { label, tip, count: Some((self.count(f), highlight)) })).collect();
             widgets::cells(ui, &mut self.settings.filter, &filters);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if self.caps.manage_apps && updates > 0 {
+                if self.caps.install_apps && updates > 0 {
                     let label = if updates == 1 {
                         tl!("Update 1 app").to_string()
                     } else {
@@ -315,6 +315,8 @@ impl LauncherUi {
             (format!("· {full}"), format!("· {short}"))
         });
         let platform = match self.platform {
+            // A launcher server's apps run in the browser, whatever the visitor's system.
+            _ if self.caps.web_apps => String::new(),
             Some(p) if self.caps.manage_apps => fmt(tl!("Installing for {platform}"), &[("platform", &p.label())]),
             Some(p) => fmt(tl!("Downloads for {platform}"), &[("platform", &p.label())]),
             None => tl!("No downloads for this system").into(),
@@ -331,7 +333,7 @@ impl LauncherUi {
         let icons_w = SOCIAL.len() as f32 * (icon + 8.0);
         let platform_w = widgets::hud_galley(ui, &platform, t.faint).size().x + 16.0 + spacing;
         let left_w = ui.available_width() - icons_w - 12.0 - links_w - 16.0 - 3.0 * spacing;
-        let show_platform = left_w - platform_w >= FOOTER_MIN_STATUS_W;
+        let show_platform = !platform.is_empty() && left_w - platform_w >= FOOTER_MIN_STATUS_W;
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if show_platform {
                 widgets::hud(ui, &platform, t.faint);
@@ -437,7 +439,7 @@ impl LauncherUi {
             });
         }
 
-        let status = entry.status(self.platform, self.caps.manage_apps);
+        let status = entry.status(self.platform, self.caps);
         let inner = Rect::from_min_max(egui::pos2(rect.left() + CARD_PAD, strip.bottom() + 18.0), rect.max - vec2(CARD_PAD, CARD_PAD));
         // A detached child: the card's contents never move the next card along.
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
@@ -475,7 +477,7 @@ impl LauncherUi {
         });
         ui.add_space(14.0);
         ui.horizontal(|ui| {
-            let (text, tone) = model::entry_status_text(&entry, &status, self.caps.manage_apps);
+            let (text, tone) = model::entry_status_text(&entry, &status, self.caps);
             let r = widgets::badge(ui, &text, widgets::tone_color(&t, tone));
             if let Some(f) = entry.failure() {
                 r.on_hover_text(fmt(tl!("Couldn't check for updates: {f}"), &[("f", f)]));
@@ -571,7 +573,7 @@ impl LauncherUi {
                     let last = ids.len().saturating_sub(1);
                     for (i, id) in ids.iter().enumerate() {
                         let Some(entry) = self.entry(id).cloned() else { continue };
-                        let status = entry.status(self.platform, self.caps.manage_apps);
+                        let status = entry.status(self.platform, self.caps);
                         body.row(62.0, |mut row| {
                             row.col(|ui| {
                                 if i < last {
@@ -611,7 +613,7 @@ impl LauncherUi {
                                 });
                             });
                             row.col(|ui| {
-                                let (text, tone) = model::entry_status_text(&entry, &status, self.caps.manage_apps);
+                                let (text, tone) = model::entry_status_text(&entry, &status, self.caps);
                                 let r = widgets::badge(ui, &text, widgets::tone_color(&t, tone));
                                 if let Some(f) = entry.failure() {
                                     r.on_hover_text(fmt(tl!("Couldn't check for updates: {f}"), &[("f", f)]));
@@ -664,6 +666,15 @@ impl LauncherUi {
                 (AppStatus::Checking, _) => Primary::Unavailable(tl!("Checking…")),
                 (_, Some(url)) => Primary::Download(url),
                 (_, None) => Primary::Unavailable(tl!("Not available")),
+            };
+        }
+        if !self.caps.install_apps {
+            // A launcher server's visitors open what its administrator installed, and nothing more.
+            return match status {
+                AppStatus::UpToDate | AppStatus::Installed | AppStatus::UpdateAvailable => Primary::Open,
+                AppStatus::Checking => Primary::Unavailable(tl!("Checking…")),
+                AppStatus::NoRelease => Primary::Unavailable(tl!("Coming soon")),
+                AppStatus::Available | AppStatus::Unavailable => Primary::Unavailable(tl!("Not available")),
             };
         }
         match status {
@@ -736,6 +747,9 @@ impl LauncherUi {
             let waiting = phase == JobPhase::Waiting;
             // Waiting has one square button beside the bar, like the menu otherwise.
             widgets::progress(ui, fraction, &caption, color, if downloading { bar_w } else { main_w });
+            if !self.caps.install_apps {
+                return;
+            }
             if downloading && widgets::glyph_button(ui, widgets::Glyph::Pause, tl!("Pause download")).clicked() {
                 self.send(Command::Pause { app: id.clone() });
             }
@@ -747,7 +761,7 @@ impl LauncherUi {
             return;
         }
         if let Some(p) = entry.paused
-            && self.caps.manage_apps
+            && self.caps.install_apps
         {
             let pct = if p.total > 0 { format!(" · {:.0}%", p.done as f32 / p.total as f32 * 100.0) } else { String::new() };
             // Resume, then discard and the menu (two squares).
@@ -814,6 +828,7 @@ impl LauncherUi {
     fn menu(&mut self, ui: &mut Ui, entry: &AppEntry, status: &AppStatus, links: bool) {
         let id = entry.app.id.to_string();
         let manage = self.caps.manage_apps;
+        let install = self.caps.install_apps;
         let reveal = self.caps.reveal_label;
         widgets::more_menu(ui, |ui| {
             if entry.release().is_some() && ui.button(tl!("Release notes")).clicked() {
@@ -822,7 +837,7 @@ impl LauncherUi {
             }
             // Only where Install would download: an up-to-date app would be reinstalled.
             let can_download_again =
-                manage && entry.ready && entry.paused.is_none() && matches!(status, AppStatus::Available | AppStatus::UpdateAvailable);
+                install && entry.ready && entry.paused.is_none() && matches!(status, AppStatus::Available | AppStatus::UpdateAvailable);
             if can_download_again && ui.button(tl!("Download again")).clicked() {
                 self.send(Command::Cancel { app: id.clone() });
                 self.send(Command::Install { app: id.clone() });
@@ -833,18 +848,20 @@ impl LauncherUi {
                     self.send(Command::Launch { app: id.clone() });
                     ui.close();
                 }
-                if ui.button(t(reveal)).clicked() {
+                if !reveal.is_empty() && ui.button(t(reveal)).clicked() {
                     self.send(Command::Reveal { app: id.clone() });
                     ui.close();
                 }
-                if *status == AppStatus::UpToDate && ui.button(tl!("Reinstall")).clicked() {
+                if install && *status == AppStatus::UpToDate && ui.button(tl!("Reinstall")).clicked() {
                     self.send(Command::Install { app: id.clone() });
                     ui.close();
                 }
-                ui.separator();
-                if ui.button(RichText::new(tl!("Uninstall…")).color(Tokens::get(ui.ctx()).bad)).clicked() {
-                    self.dialog = Some(Dialog::ConfirmUninstall(id.clone()));
-                    ui.close();
+                if install {
+                    ui.separator();
+                    if ui.button(RichText::new(tl!("Uninstall…")).color(Tokens::get(ui.ctx()).bad)).clicked() {
+                        self.dialog = Some(Dialog::ConfirmUninstall(id.clone()));
+                        ui.close();
+                    }
                 }
             }
             if !manage && let (Some(r), Some(p)) = (entry.release(), self.platform) {

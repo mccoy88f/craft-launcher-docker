@@ -26,9 +26,12 @@ crates/
   ui-egui   artcraft-launcher-ui-egui   the shared egui UI (desktop and web)
 apps/
   artcraft-launcher                     desktop shell (eframe): window, tray icon, notifications
-  artcraft-launcher-web                 the same UI in the browser (trunk; catalog and downloads only)
+  artcraft-launcher-web                 the same UI in the browser (trunk): catalog and downloads as a
+                                        static site, or a launcher server's hosted apps (src/server.rs)
+  artcraft-launcher-server              serves the web UI and hosts the apps' browser builds
+                                        (<app>-web-<ver>.zip) under /apps/<app>/; Docker + compose
 xtask/                                  cargo xtask ci | wasm | version | ico
-packaging/                              macOS, Windows, Linux, FreeBSD and web packaging scripts
+packaging/                              macOS, Windows, Linux, FreeBSD, web and Docker packaging
 assets/app-icon/                        the launcher's own icon (master SVG, renders, tray icons)
 assets/app-icons/                       the Craft apps' icons, copied from each app's repo
 assets/fonts/                           Archivo, Inter, Geist Mono (OFL-1.1): getartcraft.com's faces
@@ -62,6 +65,13 @@ settings file must produce an error the user can act on, never a panic. Shared s
   `cargo xtask local`); keep it loopback-only and behind the `local-mirror` cargo feature, which
   release builds never enable.
 - Verify each download against the release's `SHA256SUMS.txt` before running or installing it.
+- The launcher server (`apps/artcraft-launcher-server`) follows the same rules for the browser
+  builds it hosts: the zip comes from the app's own release, must match a published SHA-256
+  (`digest` or `SHA256SUMS.txt`; none published means no install), and is unpacked only inside
+  `<data>/apps/<app>/` (no `..`, no absolute paths, no links, size and file-count caps). Only
+  the administrator (HTTP Basic under `/admin/`, `ARTCRAFT_ADMIN_PASSWORD`) installs, updates or
+  removes; every state-changing request needs the `hosted::REQUEST_HEADER` header. Keep the API in
+  `core::hosted` so the server and `artcraft-launcher-web` agree.
 - The details drawer's pictures are the one other download: JPEGs only, from a pinned tag of
   `https://raw.githubusercontent.com/storytold/craft-launcher-assets/` (`core::details`),
   capped at 2 MB each, cached, and never run. Pictures are not bundled in this repo.

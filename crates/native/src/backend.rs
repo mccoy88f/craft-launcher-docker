@@ -969,7 +969,7 @@ impl Backend for NativeBackend {
             Some(Os::Windows) => "Show in Explorer",
             _ => "Show in Files",
         };
-        Capabilities { manage_apps: true, reveal_label, self_update: self.self_install.is_some() }
+        Capabilities { manage_apps: true, reveal_label, self_update: self.self_install.is_some(), install_apps: true, web_apps: false }
     }
 
     fn platform(&self) -> Option<Platform> {

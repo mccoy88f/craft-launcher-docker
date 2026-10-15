@@ -75,6 +75,9 @@ pub fn start() {
             log::error!("no canvas");
             return;
         };
+        // Served by a launcher server (`artcraft-launcher-server`), the page installs and opens
+        // apps through it; as a plain static site it lists releases and downloads.
+        let hosted = crate::server::probe().await;
         let result = eframe::WebRunner::new()
             .start(
                 canvas,
@@ -82,8 +85,11 @@ pub fn start() {
                 Box::new(|cc| {
                     let ctx = cc.egui_ctx.clone();
                     let settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, SETTINGS_KEY)).unwrap_or_default();
-                    let backend = WebBackend::new(ctx.clone());
-                    Ok(Box::new(WebApp { ui: LauncherUi::new(&ctx, Box::new(backend), settings) }))
+                    let backend: Box<dyn Backend> = match hosted {
+                        Some(state) => Box::new(crate::server::ServerBackend::new(ctx.clone(), state)),
+                        None => Box::new(WebBackend::new(ctx.clone())),
+                    };
+                    Ok(Box::new(WebApp { ui: LauncherUi::new(&ctx, backend, settings) }))
                 }),
             )
             .await;
@@ -133,43 +139,12 @@ struct WebBackend {
     platform: Option<Platform>,
     checking: Rc<RefCell<bool>>,
     prereleases: bool,
-    /// Apps whose details pictures are on their way (a second request meanwhile does nothing).
-    pictures_busy: Rc<RefCell<std::collections::HashSet<&'static str>>>,
+    pictures_busy: PicturesBusy,
 }
 
 impl WebBackend {
     fn new(ctx: egui::Context) -> Self {
         Self { events: Rc::default(), ctx, platform: visitor_platform(), checking: Rc::default(), prereleases: false, pictures_busy: Rc::default() }
-    }
-
-    /// Fetches the pictures of an app's details page, lead first. The browser keeps them in its own
-    /// cache, so there is nothing to save here.
-    fn fetch_screenshots(&self, app: &str) {
-        let Some(details) = AppDetails::by_id(app) else { return };
-        if !self.pictures_busy.borrow_mut().insert(details.id) {
-            return;
-        }
-        let (events, ctx, busy) = (self.events.clone(), self.ctx.clone(), self.pictures_busy.clone());
-        wasm_bindgen_futures::spawn_local(async move {
-            // Once the network has failed the rest would fail the same way: say so at once.
-            let mut offline: Option<String> = None;
-            for shot in details.shots {
-                let result = match (&offline, details.screenshot_url(shot.key)) {
-                    (Some(why), _) => Err(why.clone()),
-                    (None, Some(url)) => picture(&url).await.map_err(|failure| match failure {
-                        PictureError::Network(why) => {
-                            offline = Some(why.clone());
-                            why
-                        }
-                        PictureError::Picture(why) => why,
-                    }),
-                    (None, None) => Err("this page has no such picture".to_string()),
-                };
-                events.borrow_mut().push(Event::Screenshot { app: details.id.to_string(), key: shot.key.to_string(), result });
-                ctx.request_repaint();
-            }
-            busy.borrow_mut().remove(details.id);
-        });
     }
 
     fn check(&self) {
@@ -206,6 +181,39 @@ impl WebBackend {
             ctx.request_repaint();
         });
     }
+}
+
+/// Apps whose details pictures are on their way (a second request meanwhile does nothing).
+pub(crate) type PicturesBusy = Rc<RefCell<std::collections::HashSet<&'static str>>>;
+
+/// Fetches the pictures of an app's details page, lead first. The browser keeps them in its own
+/// cache, so there is nothing to save here.
+pub(crate) fn fetch_screenshots(app: &str, events: &Rc<RefCell<Vec<Event>>>, ctx: &egui::Context, busy: &PicturesBusy) {
+    let Some(details) = AppDetails::by_id(app) else { return };
+    if !busy.borrow_mut().insert(details.id) {
+        return;
+    }
+    let (events, ctx, busy) = (events.clone(), ctx.clone(), busy.clone());
+    wasm_bindgen_futures::spawn_local(async move {
+        // Once the network has failed the rest would fail the same way: say so at once.
+        let mut offline: Option<String> = None;
+        for shot in details.shots {
+            let result = match (&offline, details.screenshot_url(shot.key)) {
+                (Some(why), _) => Err(why.clone()),
+                (None, Some(url)) => picture(&url).await.map_err(|failure| match failure {
+                    PictureError::Network(why) => {
+                        offline = Some(why.clone());
+                        why
+                    }
+                    PictureError::Picture(why) => why,
+                }),
+                (None, None) => Err("this page has no such picture".to_string()),
+            };
+            events.borrow_mut().push(Event::Screenshot { app: details.id.to_string(), key: shot.key.to_string(), result });
+            ctx.request_repaint();
+        }
+        busy.borrow_mut().remove(details.id);
+    });
 }
 
 /// Why a picture couldn't be had.
@@ -284,7 +292,7 @@ async fn latest(repo: &str, prereleases: bool) -> Result<LatestRelease, Option<i
 }
 
 /// The visitor's OS and CPU, as far as the browser says.
-fn visitor_platform() -> Option<Platform> {
+pub(crate) fn visitor_platform() -> Option<Platform> {
     let nav = web_sys::window()?.navigator();
     let ua = nav.user_agent().ok()?.to_lowercase();
     let os = if ua.contains("windows") {
@@ -312,7 +320,7 @@ impl Backend for WebBackend {
     fn send(&mut self, command: Command) {
         match command {
             Command::CheckForUpdates { .. } => self.check(),
-            Command::FetchScreenshots { app } => self.fetch_screenshots(&app),
+            Command::FetchScreenshots { app } => fetch_screenshots(&app, &self.events, &self.ctx, &self.pictures_busy),
             Command::Configure(o) => {
                 let changed = o.prereleases != self.prereleases;
                 self.prereleases = o.prereleases;
@@ -329,7 +337,7 @@ impl Backend for WebBackend {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { manage_apps: false, reveal_label: "", self_update: false }
+        Capabilities { manage_apps: false, reveal_label: "", self_update: false, install_apps: false, web_apps: false }
     }
 
     fn platform(&self) -> Option<Platform> {

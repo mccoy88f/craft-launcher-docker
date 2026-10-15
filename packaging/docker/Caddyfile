@@ -1,0 +1,6 @@
+# HTTPS for the launcher server: Caddy gets and renews the certificate for $DOMAIN by itself
+# (ports 80 and 443 must reach this machine, and DOMAIN's DNS must point at it).
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy launcher:8080
+}

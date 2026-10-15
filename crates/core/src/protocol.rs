@@ -73,7 +73,7 @@ pub enum LatestRelease {
 }
 
 /// What a running job is doing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JobPhase {
     Downloading {
         done: u64,
@@ -93,7 +93,7 @@ pub enum JobPhase {
 }
 
 /// A partly downloaded file waiting to be resumed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PausedDownload {
     pub done: u64,
     /// 0 when unknown.
@@ -220,6 +220,12 @@ pub struct Capabilities {
     /// The launcher can update itself in place and restart (an installed build, not a dev build or
     /// a Flatpak). Without it the UI offers the download instead.
     pub self_update: bool,
+    /// With `manage_apps`: this user may install, update and remove apps, not just open them. Always
+    /// on the desktop; on a launcher server, only for its administrator.
+    pub install_apps: bool,
+    /// The apps are browser builds a launcher server hosts: Open opens one in a new tab, and an
+    /// app counts as available when its release has a web bundle.
+    pub web_apps: bool,
 }
 
 /// The UI's view of a backend.

@@ -81,6 +81,9 @@ you when an update is out. It is a small native app that can sit in your menu ba
 </table>
 
 The web version shows the same catalog in the browser, with the latest download for each app.
+Hosted by `artcraft-launcher-server` (Docker, on your own domain), it opens the Craft Apps'
+browser builds instead, and an administrator installs and updates them: see
+[`packaging/docker/README.md`](packaging/docker/README.md).
 
 ## Interface languages
 
@@ -180,6 +183,13 @@ artcraft-launcher
 | File | What it is |
 |---|---|
 | `artcraft-launcher-web-<ver>.zip` | The catalog as a static site you can host anywhere; see [`packaging/web/README.md`](packaging/web/README.md) |
+
+**Self-hosted, with the apps in the browser (Docker)**
+
+`Dockerfile` and [`packaging/docker/`](packaging/docker/) run the launcher on your own domain
+with `docker compose`: visitors open the installed Craft Apps, which run in their browser as
+WebAssembly, and the administrator (signed in at `/admin/` with the password set in `.env`)
+installs, updates and removes them. See [`packaging/docker/README.md`](packaging/docker/README.md).
 
 ## Build from source
 

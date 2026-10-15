@@ -454,7 +454,7 @@ impl LauncherUi {
 
     /// When auto-updates are enabled, automatically downloads and installs pending updates.
     pub(crate) fn trigger_auto_updates(&mut self) {
-        if !self.caps.manage_apps || !self.settings.auto_update {
+        if !self.caps.install_apps || !self.settings.auto_update {
             return;
         }
         let to_update: Vec<(String, String)> = self
@@ -578,7 +578,7 @@ impl LauncherUi {
             })
             .collect();
         let platform = self.platform;
-        let manage = self.caps.manage_apps;
+        let caps = self.caps;
         let desc = self.settings.sort_descending;
         let dir = |o: std::cmp::Ordering| if desc { o.reverse() } else { o };
         // Empty cells (not installed, no release) go last whichever way the column sorts.
@@ -595,7 +595,7 @@ impl LauncherUi {
                 SortKey::Suite => dir(ia.cmp(ib)),
                 SortKey::Name => dir(a.app.name.cmp(b.app.name)),
                 SortKey::Status => {
-                    dir(crate::model::status_rank(&a.status(platform, manage)).cmp(&crate::model::status_rank(&b.status(platform, manage))))
+                    dir(crate::model::status_rank(&a.status(platform, caps)).cmp(&crate::model::status_rank(&b.status(platform, caps))))
                 }
                 SortKey::Installed => {
                     let (x, y) = (installed(a), installed(b));
@@ -647,7 +647,7 @@ impl LauncherUi {
     /// Whether `entry` belongs in `filter`. Hidden apps stay out of every list except Hidden.
     pub(crate) fn in_filter(&self, entry: &AppEntry, filter: Filter) -> bool {
         let hidden = self.settings.hidden.contains(entry.app.id);
-        let status = entry.status(self.platform, self.caps.manage_apps);
+        let status = entry.status(self.platform, self.caps);
         match filter {
             Filter::Hidden => hidden,
             Filter::All => !hidden,

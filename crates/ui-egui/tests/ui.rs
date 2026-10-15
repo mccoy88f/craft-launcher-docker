@@ -83,7 +83,13 @@ impl Backend for Fake {
         out
     }
     fn capabilities(&self) -> Capabilities {
-        Capabilities { manage_apps: self.manage, reveal_label: "Show in Finder", self_update: self.manage }
+        Capabilities {
+            manage_apps: self.manage,
+            reveal_label: "Show in Finder",
+            self_update: self.manage,
+            install_apps: self.manage,
+            web_apps: false,
+        }
     }
     fn platform(&self) -> Option<Platform> {
         Some(Platform { os: Os::MacOs, arch: Arch::Arm64 })
