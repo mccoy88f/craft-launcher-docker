@@ -1,0 +1,15 @@
+{
+  "name": "ArtCraft Launcher",
+  "short_name": "ArtCraft",
+  "description": "Open the Craft App Suite: PhotoCraft, LightCraft, FilmCraft, WordCraft and the rest.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#121316",
+  "theme_color": "#121316",
+  "icons": [
+    { "src": "256x256/apps/ai.storyteller.artcraft-launcher.png", "sizes": "256x256", "type": "image/png", "purpose": "any" },
+    { "src": "512x512/apps/ai.storyteller.artcraft-launcher.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

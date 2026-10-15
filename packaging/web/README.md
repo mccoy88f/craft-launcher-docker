@@ -8,6 +8,7 @@ holds a static site in `artcraft-launcher-web-<version>/`:
 | `index.html` | The page. It loads everything through relative URLs. |
 | `artcraft-launcher-web-<hash>.js` | wasm-bindgen glue (generated, ES module) |
 | `artcraft-launcher-web-<hash>_bg.wasm` | The app (egui, built with the `wasm-release` Cargo profile) |
+| `manifest.webmanifest`, `256x256/`, `512x512/` | The web app manifest and its icons, so browsers can install the launcher as an app (PWA) |
 | `_headers`, `.htaccess` | Sample header rules for Netlify/Cloudflare Pages and Apache |
 
 There is no server-side code and no hand-written JavaScript. Upload the folder's contents anywhere

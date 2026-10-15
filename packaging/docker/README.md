@@ -7,7 +7,7 @@ device: no remote desktop, no VNC, nothing streamed.
 
 | Address | Who | What |
 |---|---|---|
-| `/` | everyone | The launcher. Installed apps have an **Open** button that opens the app in a new tab. |
+| `/` | everyone | The launcher. Installed apps have an **Open** button that opens the app in a window of its own. |
 | `/apps/<app>/` | everyone | An installed app (`/apps/photocraft/`, `/apps/wordcraft/`…). |
 | `/admin/` | the administrator | The same launcher, with **Install**, **Update to…**, **Update all** and **Uninstall…**. The browser asks for the name and password set in `.env`. |
 
@@ -24,6 +24,19 @@ docker compose up -d --build
 The first build compiles the launcher in Rust and WebAssembly and takes several minutes. Caddy
 gets the HTTPS certificate for `DOMAIN` by itself. Then open `https://<DOMAIN>/admin/`, sign in,
 and install the apps you want. Visitors see them at `https://<DOMAIN>/`.
+
+## Apps in their own window, and installing the launcher (PWA)
+
+**Open** opens each app in a pop-up window as big as the screen: no tabs, no toolbar, no
+bookmarks bar. Opening the same app again brings its window back. Browsers still show a slim
+strip with the address on pop-ups, for safety. If a pop-up blocker refuses, the app opens in a
+tab instead.
+
+The launcher is also a Progressive Web App, with the ArtCraft Launcher icon. Install it from
+the browser (Chrome and Edge: the install icon in the address bar, or **Install ArtCraft
+Launcher** in the menu; Safari: **File → Add to Dock**; on phones: **Add to Home Screen**).
+Installed, it has its own icon and window. The apps are inside its scope (`/apps/…`), so they
+open in app windows too, with no browser bars at all.
 
 ## Settings
 

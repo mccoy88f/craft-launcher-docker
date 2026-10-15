@@ -224,8 +224,9 @@ impl Backend for ServerBackend {
                 let installed = self.seen.borrow().state.apps.iter().any(|a| a.id == app && a.installed.is_some());
                 if installed {
                     let url = self.seen.borrow().state.app_url(&app);
-                    // Opened at the end of this frame, inside the click, so no pop-up blocker objects.
-                    self.ctx.open_url(egui::OpenUrl::new_tab(url));
+                    if !open_app_window(&app, &url) {
+                        self.ctx.open_url(egui::OpenUrl::new_tab(url));
+                    }
                 }
             }
             Command::FetchScreenshots { app } => fetch_screenshots(&app, &self.events, &self.ctx, &self.pictures_busy),
@@ -258,6 +259,20 @@ impl Backend for ServerBackend {
     fn now(&self) -> i64 {
         (js_sys::Date::now() / 1000.0) as i64
     }
+}
+
+/// Opens an app in a window of its own, as big as the screen allows: a pop-up window has no tabs
+/// and no toolbar, so the app looks like an app (browsers keep a slim strip with its address).
+/// When the launcher is installed as an app (PWA), the apps, which are in its scope, open in app
+/// windows with no browser bars at all. Each app has its own window name, so opening it again
+/// brings that window back. `false` when the browser refused (a pop-up blocker); the caller then
+/// opens a tab instead.
+fn open_app_window(app: &str, url: &str) -> bool {
+    let Some(window) = web_sys::window() else { return false };
+    let (width, height) =
+        window.screen().ok().map_or((1280, 800), |s| (s.avail_width().unwrap_or(1280).max(640), s.avail_height().unwrap_or(800).max(480)));
+    let features = format!("popup=yes,width={width},height={height},left=0,top=0");
+    matches!(window.open_with_url_and_target_and_features(url, &format!("artcraft-{app}"), &features), Ok(Some(_)))
 }
 
 /// One request to the launcher server: its status and body. The browser sends the
