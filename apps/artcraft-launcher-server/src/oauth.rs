@@ -12,6 +12,9 @@
 //!
 //! The access tokens are the MCP server's own (`acl_…`), listed in Settings with the client's
 //! name and revoked there like the rest.
+//!
+//! The same page style signs the administrator in to the launcher (`/admin/login`), with a
+//! session cookie; signed in, the OAuth page asks for nothing but Allow or Deny.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -255,7 +258,7 @@ fn encode(s: &str) -> String {
 async fn authorize_page(State(server): State<Shared>, headers: HeaderMap, Query(p): Query<AuthorizeParams>) -> Response {
     let lang = Lang::from_headers(&headers);
     match check_request(&server, &p).await {
-        Ok(client) => consent(&lang, &server, &client, &p, None),
+        Ok(client) => consent(&lang, &server, &client, &p, None, crate::routes::is_admin(&server, &headers)),
         Err(why) => error_page(&lang, &why),
     }
 }
@@ -277,11 +280,11 @@ async fn authorize_decision(State(server): State<Shared>, headers: HeaderMap, Fo
     if d.decision != "allow" {
         return back(&[("error", "access_denied")]);
     }
-    let allowed = server.admin.as_ref().is_some_and(|a| a.allows_login(&d.user, &d.password));
+    let allowed = crate::routes::is_admin(&server, &headers) || server.admin.as_ref().is_some_and(|a| a.allows_login(&d.user, &d.password));
     if !allowed {
         log::warn!("wrong administrator password on the OAuth page");
         tokio::time::sleep(Duration::from_secs(1)).await;
-        return consent(&lang, &server, &client, p, Some(lang.t("Wrong name or password.")));
+        return consent(&lang, &server, &client, p, Some(lang.t("Wrong name or password.")), false);
     }
     let apps = resource_app(p.resource.as_deref()).map(|a| vec![a.id.to_string()]);
     match server.mcp.new_code(&client, &p.redirect_uri, &p.code_challenge, apps) {
@@ -397,7 +400,7 @@ fn error_page(lang: &Lang, why: &str) -> Response {
     r
 }
 
-fn consent(lang: &Lang, server: &Server, client: &ClientInfo, p: &AuthorizeParams, error: Option<&str>) -> Response {
+fn consent(lang: &Lang, server: &Server, client: &ClientInfo, p: &AuthorizeParams, error: Option<&str>, signed_in: bool) -> Response {
     let host = p.redirect_uri.split("://").nth(1).and_then(|r| r.split(['/', '?']).next()).unwrap_or("");
     let apps = match resource_app(p.resource.as_deref()) {
         Some(app) => app.name.to_string(),
@@ -422,12 +425,12 @@ fn consent(lang: &Lang, server: &Server, client: &ClientInfo, p: &AuthorizeParam
         format!("<p class=\"error\">{}</p>", escape(lang.t("The MCP server is off: turn it on in the launcher's settings first.")))
     };
     let error = error.map(|e| format!("<p class=\"error\" role=\"alert\">{}</p>", escape(e))).unwrap_or_default();
+    // Signed in already (the launcher's session): only Allow or Deny.
+    let credentials = if signed_in { String::new() } else { credential_fields(lang) };
     let body = format!(
         "<h1>{title}</h1><p>{asks}</p><p>{back}</p>{off}\
          <span class=\"label\">{apps_label}</span><div class=\"apps\">{apps}</div>\
-         <form method=\"post\" action=\"authorize\">{hidden}\
-         <label class=\"label\" for=\"user\">{admin}</label><input id=\"user\" name=\"user\" autocomplete=\"username\" value=\"admin\">\
-         <label class=\"label\" for=\"password\">{password}</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" autofocus>\
+         <form method=\"post\" action=\"authorize\">{hidden}{credentials}\
          {error}\
          <div class=\"row\"><button type=\"submit\" name=\"decision\" value=\"deny\">{deny}</button>\
          <button class=\"primary\" type=\"submit\" name=\"decision\" value=\"allow\">{allow}</button></div></form>",
@@ -439,12 +442,112 @@ fn consent(lang: &Lang, server: &Server, client: &ClientInfo, p: &AuthorizeParam
         back = escape(&lang.fmt("After you allow it, you go back to {host}.", &[("host", host)])),
         apps_label = escape(lang.t("Apps it may use")),
         apps = escape(&apps),
-        admin = escape(lang.t("Administrator")),
-        password = escape(lang.t("Password")),
         deny = escape(lang.t("Deny")),
         allow = escape(lang.t("Allow")),
     );
     page(lang, &body)
+}
+
+/// The administrator's name and password fields.
+fn credential_fields(lang: &Lang) -> String {
+    format!(
+        "<label class=\"label\" for=\"user\">{admin}</label><input id=\"user\" name=\"user\" autocomplete=\"username\" value=\"admin\">\
+         <label class=\"label\" for=\"password\">{password}</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" autofocus>",
+        admin = escape(lang.t("Administrator")),
+        password = escape(lang.t("Password")),
+    )
+}
+
+// ---- the administrator's sign-in --------------------------------------------------------------
+
+#[derive(Debug, Default, Deserialize)]
+pub struct NextQuery {
+    #[serde(default)]
+    next: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct LoginForm {
+    #[serde(default)]
+    user: String,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    next: Option<String>,
+}
+
+/// Where to go after signing in: a path on this site, nothing else (no open redirect).
+fn safe_next(next: Option<&str>) -> String {
+    match next {
+        Some(n) if n.starts_with('/') && !n.starts_with("//") && !n.contains(['\\', '\r', '\n']) && n.len() < 512 => n.to_string(),
+        _ => "/".to_string(),
+    }
+}
+
+fn session_cookie(headers: &HeaderMap, value: &str, max_age: i64) -> String {
+    let secure = if public_base(headers).starts_with("https://") { "; Secure" } else { "" };
+    format!("{}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}", crate::auth::COOKIE_NAME)
+}
+
+fn login_form(lang: &Lang, next: &str, error: Option<&str>, off: bool) -> Response {
+    let error = error.map(|e| format!("<p class=\"error\" role=\"alert\">{}</p>", escape(e))).unwrap_or_default();
+    let off = if off { "<p class=\"error\">ARTCRAFT_ADMIN_PASSWORD</p>" } else { "" };
+    let body = format!(
+        "<h1>{title}</h1>{off}<form method=\"post\" action=\"login\"><input type=\"hidden\" name=\"next\" value=\"{next}\">{fields}{error}\
+         <div class=\"row\"><button class=\"primary\" type=\"submit\">{sign_in}</button></div></form>",
+        title = escape(lang.t("Sign in as administrator")),
+        next = escape(next),
+        fields = credential_fields(lang),
+        sign_in = escape(lang.t("Sign in")),
+    );
+    page(lang, &body)
+}
+
+/// `GET /admin/login`.
+pub async fn login_page(State(server): State<Shared>, headers: HeaderMap, Query(q): Query<NextQuery>) -> Response {
+    let next = safe_next(q.next.as_deref());
+    if crate::routes::is_admin(&server, &headers) {
+        return Redirect::to(&next).into_response();
+    }
+    login_form(&Lang::from_headers(&headers), &next, None, server.admin.is_none())
+}
+
+/// `POST /admin/login`: the name and password; a session cookie, and back to where it started.
+pub async fn login(State(server): State<Shared>, headers: HeaderMap, Form(f): Form<LoginForm>) -> Response {
+    let lang = Lang::from_headers(&headers);
+    let next = safe_next(f.next.as_deref());
+    let Some(admin) = &server.admin else { return login_form(&lang, &next, None, true) };
+    if !admin.allows_login(&f.user, &f.password) {
+        log::warn!("wrong administrator password on the sign-in page");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        return login_form(&lang, &next, Some(lang.t("Wrong name or password.")), false);
+    }
+    match server.sessions.start() {
+        Ok(value) => {
+            log::info!("administrator signed in");
+            let mut r = Redirect::to(&next).into_response();
+            if let Ok(v) = session_cookie(&headers, &value, crate::auth::SESSION_LIFE).parse() {
+                r.headers_mut().insert(header::SET_COOKIE, v);
+            }
+            no_store(r)
+        }
+        Err(e) => login_form(&lang, &next, Some(&e), false),
+    }
+}
+
+/// `POST /api/logout`: ends the session.
+pub async fn logout(State(server): State<Shared>, headers: HeaderMap) -> Response {
+    if !headers.contains_key(artcraft_launcher_core::hosted::REQUEST_HEADER) {
+        return (StatusCode::FORBIDDEN, "missing request header").into_response();
+    }
+    if let Some(value) = crate::auth::cookie(&headers) {
+        server.sessions.end(&value);
+    }
+    let mut r = StatusCode::NO_CONTENT.into_response();
+    if let Ok(v) = session_cookie(&headers, "", 0).parse() {
+        r.headers_mut().insert(header::SET_COOKIE, v);
+    }
+    no_store(r)
 }
 
 // ---- the page's languages: the launcher's own catalogs ----------------------------------------
@@ -467,7 +570,7 @@ const CATALOGS: [(&str, &str); 11] = [
 
 /// The page's strings (English is the key, as in the launcher).
 #[cfg(test)]
-const PAGE_STRINGS: [&str; 11] = [
+const PAGE_STRINGS: [&str; 13] = [
     "Connect {client} to ArtCraft Launcher",
     "{client} asks to use the Craft Apps on this server over MCP: to open, edit and save files in their work folders.",
     "After you allow it, you go back to {host}.",
@@ -479,6 +582,8 @@ const PAGE_STRINGS: [&str; 11] = [
     "Wrong name or password.",
     "The MCP server is off: turn it on in the launcher's settings first.",
     "This request isn't valid: {why}",
+    "Sign in as administrator",
+    "Sign in",
 ];
 
 struct Lang {
@@ -533,21 +638,6 @@ fn parse(text: &'static str) -> HashMap<&'static str, &'static str> {
         .collect()
 }
 
-impl crate::auth::Admin {
-    /// The page's sign-in: the same name and password as the administrator's page.
-    pub fn allows_login(&self, user: &str, password: &str) -> bool {
-        let value = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}")));
-        let mut headers = HeaderMap::new();
-        match value.parse() {
-            Ok(v) => {
-                headers.insert(header::AUTHORIZATION, v);
-                self.allows(&headers)
-            }
-            Err(_) => false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -576,6 +666,16 @@ mod tests {
         assert_eq!(lang("xx,pt-PT;q=0.5"), "pt-BR");
         assert_eq!(lang("zh-TW,en"), "en");
         assert_eq!(lang("en-US"), "en");
+    }
+
+    #[test]
+    fn sign_in_only_goes_back_to_this_site() {
+        assert_eq!(safe_next(Some("/")), "/");
+        assert_eq!(safe_next(Some("/?lang=it")), "/?lang=it");
+        assert_eq!(safe_next(Some("//evil.com")), "/");
+        assert_eq!(safe_next(Some("https://evil.com")), "/");
+        assert_eq!(safe_next(Some("/\\evil.com")), "/");
+        assert_eq!(safe_next(None), "/");
     }
 
     #[test]

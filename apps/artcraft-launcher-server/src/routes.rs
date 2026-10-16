@@ -10,7 +10,6 @@ use artcraft_launcher_core::hosted::{McpAnswer, McpChange, REQUEST_HEADER, Serve
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
-use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -24,54 +23,45 @@ use crate::mcp::{self, Refusal};
 type Shared = Arc<Server>;
 
 pub fn router(server: Shared) -> Router {
-    let admin = Router::new()
-        .route("/admin/api/state", get(admin_state))
-        .route("/admin/api/releases", get(admin_releases))
-        .route("/admin/api/apps/{app}/{action}", post(action))
-        .route("/admin/api/mcp", post(mcp_change))
-        .route("/admin/", get(admin_page))
-        .route("/admin/{*path}", get(admin_page))
-        .route_layer(middleware::from_fn_with_state(server.clone(), require_admin));
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
-        .route("/api/state", get(public_state))
-        .route("/api/releases", get(public_releases))
-        // Relative, so it still works when a proxy serves everything under a prefix.
-        .route("/admin", get(|| async { Redirect::permanent("admin/") }))
-        // The app manifest and its icons, for the administrator's page too: browsers fetch them
-        // without the sign-in, so behind it the page couldn't be installed as an app (PWA).
-        .route("/admin/manifest.webmanifest", get(admin_page))
-        .route("/admin/256x256/{*path}", get(admin_page))
-        .route("/admin/512x512/{*path}", get(admin_page))
+        .route("/api/state", get(state))
+        .route("/api/releases", get(releases))
+        .route("/api/apps/{app}/{action}", post(action))
+        .route("/api/mcp", post(mcp_change))
+        .route("/api/logout", post(crate::oauth::logout))
+        .route("/admin/login", get(crate::oauth::login_page).post(crate::oauth::login))
+        // Old addresses of the administrator's page: the sign-in, or the launcher once signed in.
+        .route("/admin", get(admin_redirect))
+        .route("/admin/", get(admin_redirect))
+        .route("/admin/{*path}", get(admin_redirect))
         .route("/mcp/{app}", post(mcp_post).get(mcp_get).delete(mcp_delete).layer(DefaultBodyLimit::max(32 << 20)))
         .route("/apps/{app}", get(app_redirect))
         .route("/apps/{app}/", get(app_file))
         .route("/apps/{app}/{*path}", get(app_file))
-        .merge(admin)
         .merge(crate::oauth::routes())
         .fallback(launcher_page)
         .with_state(server)
 }
 
-/// Turns the browser's password prompt on for everything under `/admin/`.
-async fn require_admin(State(server): State<Shared>, request: Request, next: Next) -> Response {
-    let Some(admin) = &server.admin else {
-        return (StatusCode::NOT_FOUND, "The administrator's page is switched off: set ARTCRAFT_ADMIN_PASSWORD to turn it on.").into_response();
-    };
-    if admin.allows(request.headers()) {
-        return next.run(request).await;
-    }
-    if request.headers().contains_key(header::AUTHORIZATION) {
+/// Whether the request comes from the signed-in administrator: the sign-in page's session
+/// cookie, or the name and password over HTTP Basic (scripts).
+pub fn is_admin(server: &Server, headers: &HeaderMap) -> bool {
+    server.admin.as_ref().is_some_and(|a| server.sessions.signed_in(headers) || a.allows(headers))
+}
+
+/// What a request that needs the administrator gets otherwise. No `WWW-Authenticate`: the
+/// launcher signs in on its own page, not through the browser's prompt.
+async fn sign_in_first(headers: &HeaderMap) -> Response {
+    if headers.contains_key(header::AUTHORIZATION) {
         // A wrong password costs a second, which makes guessing slow.
-        log::warn!("wrong administrator password for {}", request.uri().path());
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    (
-        StatusCode::UNAUTHORIZED,
-        [(header::WWW_AUTHENTICATE, "Basic realm=\"ArtCraft Launcher\", charset=\"UTF-8\""), (header::CACHE_CONTROL, "no-store")],
-        "Sign in to install, update and remove Craft Apps.",
-    )
-        .into_response()
+    no_store((StatusCode::UNAUTHORIZED, "Sign in as administrator first.").into_response())
+}
+
+async fn admin_redirect(State(server): State<Shared>, headers: HeaderMap) -> Response {
+    Redirect::to(if is_admin(&server, &headers) { "/" } else { "/admin/login" }).into_response()
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -89,34 +79,31 @@ fn no_store(mut response: Response) -> Response {
     response
 }
 
-async fn public_state(State(server): State<Shared>) -> Response {
-    no_store(Json(server.hosting.state(false, "apps/")).into_response())
-}
-
-/// The administrator's view: the apps, and the MCP server.
-fn admin_view(server: &Server) -> ServerState {
-    let mut state = server.hosting.state(true, "../apps/");
-    state.mcp = Some(server.mcp.state(&server.hosting, "../mcp/"));
+/// What everyone sees: the apps and the MCP server (tokens without their hints unless signed in).
+fn view(server: &Server, admin: bool) -> ServerState {
+    let mut state = server.hosting.state(admin, "apps/");
+    state.mcp = Some(server.mcp.state(&server.hosting, "mcp/", admin));
     state
 }
 
-async fn admin_state(State(server): State<Shared>) -> Response {
-    no_store(Json(admin_view(&server)).into_response())
+async fn state(State(server): State<Shared>, headers: HeaderMap) -> Response {
+    no_store(Json(view(&server, is_admin(&server, &headers))).into_response())
 }
 
-async fn public_releases(State(server): State<Shared>, Query(o): Query<Options>) -> Response {
-    no_store(Json(server.releases.get(on(o.pre.as_ref()), false).await).into_response())
+async fn releases(State(server): State<Shared>, headers: HeaderMap, Query(o): Query<Options>) -> Response {
+    // Only the administrator may make the server ask GitHub again at once.
+    let force = on(o.force.as_ref()) && is_admin(&server, &headers);
+    no_store(Json(server.releases.get(on(o.pre.as_ref()), force).await).into_response())
 }
 
-async fn admin_releases(State(server): State<Shared>, Query(o): Query<Options>) -> Response {
-    no_store(Json(server.releases.get(on(o.pre.as_ref()), on(o.force.as_ref())).await).into_response())
-}
-
-/// `POST /admin/api/apps/<app>/<action>`: install, uninstall, pause or cancel.
+/// `POST /api/apps/<app>/<action>`: install, uninstall, pause or cancel (the administrator).
 async fn action(State(server): State<Shared>, Path((app, action)): Path<(String, String)>, Query(o): Query<Options>, headers: HeaderMap) -> Response {
     // A form on another site can't set this header (see `hosted::REQUEST_HEADER`).
     if !headers.contains_key(REQUEST_HEADER) {
         return (StatusCode::FORBIDDEN, "missing request header").into_response();
+    }
+    if !is_admin(&server, &headers) {
+        return sign_in_first(&headers).await;
     }
     let Some(app) = CraftApp::by_id(&app) else {
         return (StatusCode::NOT_FOUND, "no such app").into_response();
@@ -139,15 +126,18 @@ async fn action(State(server): State<Shared>, Path((app, action)): Path<(String,
         _ => return (StatusCode::NOT_FOUND, "no such action").into_response(),
     };
     match result {
-        Ok(()) => no_store(Json(admin_view(&server)).into_response()),
+        Ok(()) => no_store(Json(view(&server, true)).into_response()),
         Err(e) => no_store((StatusCode::CONFLICT, e).into_response()),
     }
 }
 
-/// `POST /admin/api/mcp`: one [`McpChange`].
+/// `POST /api/mcp`: one [`McpChange`] (the administrator).
 async fn mcp_change(State(server): State<Shared>, headers: HeaderMap, Json(change): Json<McpChange>) -> Response {
     if !headers.contains_key(REQUEST_HEADER) {
         return (StatusCode::FORBIDDEN, "missing request header").into_response();
+    }
+    if !is_admin(&server, &headers) {
+        return sign_in_first(&headers).await;
     }
     let mcp = &server.mcp;
     let app = |id: &str| CraftApp::by_id(id).ok_or_else(|| "no such app".to_string());
@@ -180,7 +170,7 @@ async fn mcp_change(State(server): State<Shared>, headers: HeaderMap, Json(chang
         }
     };
     match result {
-        Ok(()) => no_store(Json(McpAnswer { state: admin_view(&server), token }).into_response()),
+        Ok(()) => no_store(Json(McpAnswer { state: view(&server, true), token }).into_response()),
         Err(e) => no_store((StatusCode::CONFLICT, e).into_response()),
     }
 }
@@ -356,11 +346,6 @@ async fn launcher_page(State(server): State<Shared>, request: Request) -> Respon
     serve(server.web_dir.clone(), "", request, true).await
 }
 
-/// The launcher itself, for the administrator.
-async fn admin_page(State(server): State<Shared>, request: Request) -> Response {
-    serve(server.web_dir.clone(), "/admin", request, true).await
-}
-
 /// Serves the file `request` names below `prefix` from `dir`. `hashed`: names carry a content
 /// hash (trunk's `filehash`), so `.js` and `.wasm` can be cached for good.
 async fn serve(dir: PathBuf, prefix: &str, request: Request, hashed: bool) -> Response {
@@ -399,7 +384,16 @@ mod tests {
             releases: releases::Releases::new(http, data, Duration::from_secs(1800)),
             web_dir: web.to_path_buf(),
             admin: password.map(|p| auth::Admin::new("admin".into(), p.into()).unwrap()),
+            sessions: auth::Sessions::open(data),
         })
+    }
+
+    async fn send_body(router: &Router, method: &str, uri: &str, headers: &[(&str, String)], body: &str) -> Response {
+        let mut req = Request::builder().method(method).uri(uri);
+        for (k, v) in headers {
+            req = req.header(*k, v);
+        }
+        router.clone().oneshot(req.body(Body::from(body.to_string())).unwrap()).await.unwrap()
     }
 
     async fn send(router: &Router, method: &str, uri: &str, headers: &[(&str, String)]) -> Response {
@@ -469,38 +463,41 @@ mod tests {
     async fn only_the_administrator_changes_anything() {
         let (web, data) = sites();
         let router = router(server(web.path(), data.path(), Some("long enough")));
-        let auth = |up: &str| ("authorization", format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(up)));
         let marker = (REQUEST_HEADER, "1".to_string());
 
-        let anon = send(&router, "GET", "/admin/", &[]).await;
-        assert_eq!(anon.status(), StatusCode::UNAUTHORIZED);
-        assert!(anon.headers()[header::WWW_AUTHENTICATE].to_str().unwrap().starts_with("Basic"));
-        assert_eq!(send(&router, "GET", "/admin/", &[auth("admin:wrong password")]).await.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(text(send(&router, "GET", "/admin/", &[auth("admin:long enough")]).await).await, "launcher");
-        assert_eq!(send(&router, "GET", "/admin", &[]).await.headers()[header::LOCATION], "admin/");
-        // Browsers fetch the app manifest and its icons without the sign-in.
-        assert_eq!(text(send(&router, "GET", "/admin/manifest.webmanifest", &[]).await).await, "{}");
-        assert_eq!(send(&router, "GET", "/admin/256x256/apps/icon.png", &[]).await.status(), StatusCode::OK);
-        assert_eq!(send(&router, "GET", "/admin/api/state", &[]).await.status(), StatusCode::UNAUTHORIZED);
+        // Everyone sees the same page and state; nothing asks the browser for a password.
+        let state = send(&router, "GET", "/api/state", &[]).await;
+        assert!(state.headers().get(header::WWW_AUTHENTICATE).is_none());
+        let state: ServerState = serde_json::from_str(&text(state).await).unwrap();
+        assert!(!state.admin && state.mcp.is_some());
+        assert_eq!(send(&router, "GET", "/admin/", &[]).await.headers()[header::LOCATION], "/admin/login");
 
-        let state = text(send(&router, "GET", "/admin/api/state", &[auth("admin:long enough")]).await).await;
-        let state: artcraft_launcher_core::hosted::ServerState = serde_json::from_str(&state).unwrap();
+        // Visitors can't remove anything.
+        let refused = send(&router, "POST", "/api/apps/photocraft/uninstall", std::slice::from_ref(&marker)).await;
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        assert!(refused.headers().get(header::WWW_AUTHENTICATE).is_none());
+
+        // The sign-in page: a wrong password stays there, the right one sets the session cookie.
+        let form = ("content-type", "application/x-www-form-urlencoded".to_string());
+        let page = text(send(&router, "GET", "/admin/login?next=/", &[]).await).await;
+        assert!(page.contains("name=\"password\""));
+        let wrong = send_body(&router, "POST", "/admin/login", std::slice::from_ref(&form), "user=admin&password=nope&next=/").await;
+        assert_eq!(wrong.status(), StatusCode::OK);
+        assert!(wrong.headers().get(header::SET_COOKIE).is_none());
+        let ok = send_body(&router, "POST", "/admin/login", &[form], "user=admin&password=long%20enough&next=//evil.com").await;
+        assert_eq!(ok.headers()[header::LOCATION], "/");
+        let set = ok.headers()[header::SET_COOKIE].to_str().unwrap().to_string();
+        assert!(set.contains("HttpOnly") && set.contains("SameSite=Lax"));
+        let cookie = ("cookie", set.split(';').next().unwrap().to_string());
+
+        let state: ServerState = serde_json::from_str(&text(send(&router, "GET", "/api/state", std::slice::from_ref(&cookie)).await).await).unwrap();
         assert!(state.admin);
-        assert_eq!(state.apps_url, "../apps/");
-
-        // Visitors can't remove anything, nor can a cross-site form without the marker header.
-        assert_eq!(
-            send(&router, "POST", "/admin/api/apps/photocraft/uninstall", std::slice::from_ref(&marker)).await.status(),
-            StatusCode::UNAUTHORIZED
-        );
-        assert_eq!(
-            send(&router, "POST", "/api/apps/photocraft/uninstall", std::slice::from_ref(&marker)).await.status(),
-            StatusCode::METHOD_NOT_ALLOWED
-        );
-        assert_eq!(send(&router, "POST", "/admin/api/apps/photocraft/uninstall", &[auth("admin:long enough")]).await.status(), StatusCode::FORBIDDEN);
+        assert_eq!(state.apps_url, "apps/");
+        // A cross-site form can't send the marker header, even with the cookie.
+        assert_eq!(send(&router, "POST", "/api/apps/photocraft/uninstall", std::slice::from_ref(&cookie)).await.status(), StatusCode::FORBIDDEN);
         assert!(data.path().join("apps/photocraft/0.8.2-1/index.html").is_file());
 
-        let removed = send(&router, "POST", "/admin/api/apps/photocraft/uninstall", &[auth("admin:long enough"), marker]).await;
+        let removed = send(&router, "POST", "/api/apps/photocraft/uninstall", &[cookie.clone(), marker.clone()]).await;
         assert_eq!(removed.status(), StatusCode::OK);
         for _ in 0..100 {
             if !data.path().join("apps/photocraft").exists() {
@@ -510,6 +507,14 @@ mod tests {
         }
         assert!(!data.path().join("apps/photocraft").exists());
         assert_eq!(send(&router, "GET", "/apps/photocraft/", &[]).await.status(), StatusCode::NOT_FOUND);
+
+        // Signing out ends the session; scripts may still use HTTP Basic.
+        assert_eq!(send(&router, "POST", "/api/logout", &[cookie.clone(), marker.clone()]).await.status(), StatusCode::NO_CONTENT);
+        let state: ServerState = serde_json::from_str(&text(send(&router, "GET", "/api/state", &[cookie]).await).await).unwrap();
+        assert!(!state.admin);
+        let basic = ("authorization", format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("admin:long enough")));
+        let state: ServerState = serde_json::from_str(&text(send(&router, "GET", "/api/state", &[basic]).await).await).unwrap();
+        assert!(state.admin);
     }
 
     #[tokio::test]
@@ -517,7 +522,8 @@ mod tests {
         let (web, data) = sites();
         let router = router(server(web.path(), data.path(), None));
         let auth = ("authorization", format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("admin:")));
-        assert_eq!(send(&router, "GET", "/admin/", &[auth]).await.status(), StatusCode::NOT_FOUND);
+        let state: ServerState = serde_json::from_str(&text(send(&router, "GET", "/api/state", &[auth]).await).await).unwrap();
+        assert!(!state.admin);
         assert_eq!(send(&router, "GET", "/apps/photocraft/", &[]).await.status(), StatusCode::OK);
     }
 }

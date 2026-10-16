@@ -29,7 +29,11 @@ impl Backend for Hosted {
         std::mem::take(&mut self.events)
     }
     fn capabilities(&self) -> Capabilities {
-        Capabilities { manage_apps: true, reveal_label: "", self_update: false, install_apps: self.admin, web_apps: true }
+        // As the launcher server's backend: everything shows; signing in decides what goes through.
+        Capabilities { manage_apps: true, reveal_label: "", self_update: false, install_apps: true, web_apps: true }
+    }
+    fn signed_in(&self) -> Option<bool> {
+        Some(self.admin)
     }
     fn platform(&self) -> Option<Platform> {
         Some(Platform { os: Os::Linux, arch: Arch::X64 })
@@ -123,7 +127,7 @@ fn harness_with(admin: bool, events: Vec<Event>) -> (Harness<'static, Option<Lau
     let sent = Rc::new(RefCell::new(Vec::new()));
     let mut backend = Some(Hosted { events, sent: sent.clone(), admin });
     let settings = Settings { view: ViewMode::Grid, notify: false, ..Settings::default() };
-    let mut h = Harness::builder().with_size(egui::vec2(1180.0, 900.0)).build_ui_state(
+    let mut h = Harness::builder().with_size(egui::vec2(1180.0, 1700.0)).build_ui_state(
         move |ui, state: &mut Option<LauncherUi>| {
             if state.is_none()
                 && let Some(b) = backend.take()
@@ -142,21 +146,26 @@ fn harness_with(admin: bool, events: Vec<Event>) -> (Harness<'static, Option<Lau
 }
 
 #[test]
-fn visitors_open_installed_apps_and_install_nothing() {
+fn visitors_see_everything_and_their_changes_ask_to_sign_in() {
     let (mut h, sent) = harness(false);
-    // Installed apps open, even one with a newer release (only the administrator updates).
-    assert_eq!(h.query_all_by_label("Open").count(), 2);
-    assert!(h.query_by_label("Install").is_none());
-    assert!(h.query_by_label_contains("Update to").is_none());
-    assert!(h.query_by_label_contains("Update all").is_none());
-    assert!(h.query_by_label("Available to install").is_none());
+    // The same page as the administrator's: installed apps open, the rest can be installed.
+    assert_eq!(h.query_all_by_label("Open").count(), 1);
+    h.get_by_label("Update to 0.6.0");
     // Nothing about the visitor's own system: the apps run in the browser.
     assert!(h.query_by_label_contains("Installing for").is_none());
     assert!(h.query_by_label_contains("Download for").is_none());
     h.query_all_by_label("Open").next().unwrap().click();
     h.run_steps(2);
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::Launch { app } if app == "photocraft")), "{:?}", sent.borrow());
-    assert!(!sent.borrow().iter().any(|c| matches!(c, Command::Install { .. })));
+    // Install goes to the backend, which takes a visitor to the sign-in page.
+    h.get_by_label("Install").click();
+    h.run_steps(2);
+    assert!(sent.borrow().iter().any(|c| matches!(c, Command::Install { app } if app == "vectorcraft")));
+    h.get_by_label("Settings").click();
+    h.run_steps(4);
+    h.get_by_label("Sign in as administrator").click();
+    h.run_steps(2);
+    assert!(sent.borrow().contains(&Command::SignIn));
 }
 
 #[test]

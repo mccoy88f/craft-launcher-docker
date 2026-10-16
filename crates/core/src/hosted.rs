@@ -2,20 +2,21 @@
 //! build that talks to it, so the two ends always agree on the shapes.
 //!
 //! A launcher server hosts the Craft Apps' browser builds (`<app>-web-<version>.zip`) at
-//! `apps/<app>/`. Anyone can open them; only its administrator, signed in under `admin/`, can
-//! install, update or remove them.
+//! `apps/<app>/`. Everyone sees the same page; only its administrator, signed in at
+//! `admin/login` (a session cookie), can install, update or remove them.
 //!
 //! | Request | Who | Answer |
 //! |---|---|---|
-//! | `GET api/state` | everyone (`admin/api/state`: the administrator) | [`ServerState`] |
-//! | `GET api/releases[?pre=1][&force=1]` | everyone; `force` only under `admin/` | [`Releases`] |
-//! | `POST admin/api/apps/<app>/<action>[?pre=1]` | the administrator | [`ServerState`] |
+//! | `GET api/state` | everyone (`admin` says whether signed in) | [`ServerState`] |
+//! | `GET api/releases[?pre=1][&force=1]` | everyone; `force` only signed in | [`Releases`] |
+//! | `POST api/apps/<app>/<action>[?pre=1]` | the administrator | [`ServerState`] |
 //!
-//! | `POST admin/api/mcp` with a [`McpChange`] | the administrator | [`McpAnswer`] |
+//! | `POST api/mcp` with a [`McpChange`] | the administrator | [`McpAnswer`] |
+//! | `GET`, `POST admin/login`; `POST api/logout` | the administrator | the sign-in page; a session cookie |
 //! | `POST`, `DELETE mcp/<app>` | an MCP client with an access token | MCP (Streamable HTTP) |
 //! | `.well-known/oauth-*`, `oauth/register`, `oauth/authorize`, `oauth/token` | MCP clients signing in | OAuth 2.1 |
 //!
-//! `<action>` is `install`, `uninstall`, `pause` or `cancel`. Every `POST` under `admin/` carries
+//! `<action>` is `install`, `uninstall`, `pause` or `cancel`. Every `POST` under `api/` carries
 //! the [`REQUEST_HEADER`] header, which a form on another site can't send.
 //!
 //! ## MCP
@@ -40,12 +41,12 @@ pub const REQUEST_HEADER: &str = "x-artcraft-launcher";
 /// What the server has installed and is doing.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerState {
-    /// The page asking is the administrator's: it may install, update and remove apps.
+    /// The page asking is signed in as the administrator: it may install, update and remove apps.
     pub admin: bool,
     /// Where the apps are, relative to the page that asked: `apps/` or `../apps/`.
     pub apps_url: String,
     pub apps: Vec<HostedApp>,
-    /// The MCP server's settings and tokens (the administrator's page only).
+    /// The MCP server's settings and tokens (tokens without their hints unless signed in).
     #[serde(default)]
     pub mcp: Option<McpState>,
 }

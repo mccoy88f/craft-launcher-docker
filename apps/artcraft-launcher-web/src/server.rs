@@ -1,6 +1,7 @@
 //! The backend for a page served by a launcher server (`artcraft-launcher-server`): the apps are
-//! the browser builds that server hosts, Open opens one in a new tab, and on the administrator's
-//! page (`admin/`) Install, Update and Uninstall ask the server to do it.
+//! the browser builds that server hosts, and Open opens one in a window of its own. Everyone sees
+//! the same page; Install, Update, Uninstall and the MCP settings ask the server to do it when
+//! signed in as its administrator, and go to the sign-in page (`admin/login`) otherwise.
 //!
 //! Every URL here is relative to the page, so the same build works at `/`, under `/admin/` and
 //! behind a proxy's prefix. The API is described in `artcraft_launcher_core::hosted`.
@@ -110,6 +111,7 @@ impl ServerBackend {
     /// Asks the server to install, uninstall, pause or cancel `app` (the administrator's page only).
     fn act(&self, app: String, action: &'static str) {
         if !self.admin {
+            sign_in();
             return;
         }
         let pre = if self.prereleases && action == "install" { "?pre=1" } else { "" };
@@ -126,6 +128,8 @@ impl ServerBackend {
                         apply(&mut seen, state, &mut events, false);
                     }
                 }
+                // The session ended meanwhile: sign in again.
+                Ok((401, _)) => sign_in(),
                 Ok((status, text)) => {
                     let why = if text.trim().is_empty() { format!("the launcher server answered HTTP {status}") } else { text.trim().to_string() };
                     events.push(Event::JobFinished { app, result: Err(why) });
@@ -139,6 +143,7 @@ impl ServerBackend {
     /// Asks the server to change its MCP server (the administrator's page only).
     fn mcp(&self, change: McpChange) {
         if !self.admin {
+            sign_in();
             return;
         }
         let Ok(body) = serde_json::to_string(&change) else { return };
@@ -161,6 +166,7 @@ impl ServerBackend {
                         }
                     }
                 }
+                Ok((401, _)) => sign_in(),
                 Ok((status, text)) => {
                     let why = if text.trim().is_empty() { format!("the launcher server answered HTTP {status}") } else { text.trim().to_string() };
                     events.push(Event::JobFinished { app: label, result: Err(why) });
@@ -286,6 +292,8 @@ impl Backend for ServerBackend {
                 }
             }
             Command::Mcp(change) => self.mcp(change),
+            Command::SignIn => sign_in(),
+            Command::SignOut => sign_out(),
             Command::Reveal { .. } | Command::UpdateLauncher => {}
         }
     }
@@ -298,7 +306,12 @@ impl Backend for ServerBackend {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { manage_apps: true, reveal_label: "", self_update: false, install_apps: self.admin, web_apps: true }
+        // Everything shows for everyone; what needs the administrator signs in first.
+        Capabilities { manage_apps: true, reveal_label: "", self_update: false, install_apps: true, web_apps: true }
+    }
+
+    fn signed_in(&self) -> Option<bool> {
+        Some(self.admin)
     }
 
     fn platform(&self) -> Option<Platform> {
@@ -308,6 +321,25 @@ impl Backend for ServerBackend {
     fn now(&self) -> i64 {
         (js_sys::Date::now() / 1000.0) as i64
     }
+}
+
+/// Goes to the sign-in page, which comes back here once signed in.
+fn sign_in() {
+    let Some(window) = web_sys::window() else { return };
+    let location = window.location();
+    let here = format!("{}{}", location.pathname().unwrap_or_else(|_| "/".into()), location.search().unwrap_or_default());
+    let next: String = js_sys::encode_uri_component(&here).into();
+    let _ = location.set_href(&format!("admin/login?next={next}"));
+}
+
+/// Ends the session and shows the page again, as a visitor.
+fn sign_out() {
+    wasm_bindgen_futures::spawn_local(async {
+        let _ = request("POST", "api/logout").await;
+        if let Some(w) = web_sys::window() {
+            let _ = w.location().reload();
+        }
+    });
 }
 
 /// Opens an app in a window of its own, as big as the screen allows: a pop-up window has no tabs

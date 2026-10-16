@@ -367,3 +367,16 @@ filter	Installed	Nainstalováno
 	Wrong name or password.	Nesprávné jméno nebo heslo.
 	The MCP server is off: turn it on in the launcher's settings first.	Server MCP je vypnutý: nejprve ho zapněte v nastavení launcheru.
 	This request isn't valid: {why}	Tento požadavek není platný: {why}
+
+# Signing in as a launcher server's administrator, and what the server has installed.
+	Signed in as administrator	Přihlášeni jako správce
+	Sign out	Odhlásit
+	Sign in as administrator	Přihlásit jako správce
+	Sign in	Přihlásit
+	On this server	Na tomto serveru
+	Browser version {version}	Verze pro prohlížeč {version}
+	MCP tool ready	Nástroj MCP připraven
+	MCP tool not installed	Nástroj MCP není nainstalován
+	MCP on	MCP zapnuto
+	MCP off	MCP vypnuto
+	Sign in to change these.	Pro změny se přihlaste.

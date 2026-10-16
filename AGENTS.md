@@ -69,7 +69,8 @@ settings file must produce an error the user can act on, never a panic. Shared s
   builds it hosts: the zip comes from the app's own release, must match a published SHA-256
   (`digest` or `SHA256SUMS.txt`; none published means no install), and is unpacked only inside
   `<data>/apps/<app>/` (no `..`, no absolute paths, no links, size and file-count caps). Only
-  the administrator (HTTP Basic under `/admin/`, `ARTCRAFT_ADMIN_PASSWORD`) installs, updates or
+  the administrator (the `/admin/login` page and its session cookie, or HTTP Basic for scripts;
+  `ARTCRAFT_ADMIN_PASSWORD`) installs, updates or
   removes; every state-changing request needs the `hosted::REQUEST_HEADER` header. Keep the API in
   `core::hosted` so the server and `artcraft-launcher-web` agree.
 - Its MCP server (`apps/artcraft-launcher-server/src/mcp.rs`) runs only `bin/<app>-cli` taken from

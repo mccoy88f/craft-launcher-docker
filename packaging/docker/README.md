@@ -7,9 +7,18 @@ device: no remote desktop, no VNC, nothing streamed.
 
 | Address | Who | What |
 |---|---|---|
-| `/` | everyone | The launcher. Installed apps have an **Open** button that opens the app in a window of its own. |
+| `/` | everyone | The launcher: every app, its MCP status and the settings. Installed apps have an **Open** button that opens the app in a window of its own. |
 | `/apps/<app>/` | everyone | An installed app (`/apps/photocraft/`, `/apps/wordcraft/`…). |
-| `/admin/` | the administrator | The same launcher, with **Install**, **Update to…**, **Update all** and **Uninstall…**. The browser asks for the name and password set in `.env`. |
+| `/admin/login` | the administrator | The launcher's sign-in page (the name and password set in `.env`). Signed in, the same page installs, updates and removes apps and changes the MCP settings. |
+
+Everyone sees the same page. **Install**, **Update**, **Uninstall…**, the MCP switches and the
+MCP settings show for visitors too; using one takes a visitor to the sign-in page, and back once
+signed in. **Settings → Sign in as administrator** does the same, and **Sign out** ends the
+session. Visitors see the access tokens' names, never even their last characters. Each app's
+details page has a folded **MCP server** button under Website, GitHub and Releases: it unfolds
+into the app's status (its browser version, whether its MCP tool is installed and whether MCP is
+on), its MCP address and its work folder. **Settings → On this server** lists the same for every
+installed app.
 
 ## Quick start
 
@@ -24,7 +33,7 @@ docker compose up -d --build
 ```
 
 The first build compiles the launcher in Rust and WebAssembly and takes several minutes. Caddy
-gets the HTTPS certificate for `DOMAIN` by itself. Then open `https://<DOMAIN>/admin/`, sign in,
+gets the HTTPS certificate for `DOMAIN` by itself. Then open `https://<DOMAIN>/admin/login`, sign in,
 and install the apps you want. Visitors see them at `https://<DOMAIN>/`.
 
 ## Apps in their own window, and installing the launcher (PWA)
@@ -143,8 +152,10 @@ else.
 
 ## Security notes
 
-- Use HTTPS: the administrator's password travels with every request under `/admin/`. The
-  compose file puts Caddy in front for that. Browsers also turn on WebGPU and clipboard
+- Use HTTPS: the sign-in page sends the administrator's password, and the session cookie
+  (`HttpOnly`, `SameSite=Lax`, `Secure` on HTTPS) travels with every request. The compose file
+  puts Caddy in front for that; Coolify's Traefik does the same. Scripts may send the name and
+  password with HTTP Basic instead. Browsers also turn on WebGPU and clipboard
   access only on HTTPS pages.
 - Each wrong password costs a second, which makes guessing slow. Choose a long password anyway.
 - Every request that changes something needs the `x-artcraft-launcher` header. A form on another

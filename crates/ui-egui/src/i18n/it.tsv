@@ -380,3 +380,16 @@ filter	Installed	Installate
 	Wrong name or password.	Nome o password errati.
 	The MCP server is off: turn it on in the launcher's settings first.	Il server MCP è spento: prima attivalo nelle impostazioni del launcher.
 	This request isn't valid: {why}	Questa richiesta non è valida: {why}
+
+# Signing in as a launcher server's administrator, and what the server has installed.
+	Signed in as administrator	Accesso come amministratore
+	Sign out	Esci
+	Sign in as administrator	Accedi come amministratore
+	Sign in	Accedi
+	On this server	Su questo server
+	Browser version {version}	Versione browser {version}
+	MCP tool ready	Strumento MCP pronto
+	MCP tool not installed	Strumento MCP non installato
+	MCP on	MCP attivo
+	MCP off	MCP spento
+	Sign in to change these.	Accedi per modificarle.

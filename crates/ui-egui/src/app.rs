@@ -152,6 +152,8 @@ pub struct LauncherUi {
     pub(crate) mcp: Option<artcraft_launcher_core::hosted::McpState>,
     /// What the new-token dialog is filling in.
     pub(crate) token_form: crate::mcp::TokenForm,
+    /// The MCP box on the details page is unfolded.
+    pub(crate) mcp_open: bool,
 }
 
 /// The language to draw in: the preference, or English where it needs a CJK font the system
@@ -211,6 +213,7 @@ impl LauncherUi {
             auto_update_attempted: std::collections::BTreeSet::new(),
             mcp: None,
             token_form: crate::mcp::TokenForm::default(),
+            mcp_open: false,
         }
     }
 

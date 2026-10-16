@@ -53,6 +53,10 @@ pub enum Command {
     Configure(BackendOptions),
     /// Change a launcher server's MCP server (its administrator only).
     Mcp(crate::hosted::McpChange),
+    /// Go to a launcher server's sign-in page (and come back signed in as its administrator).
+    SignIn,
+    /// End the administrator's session on a launcher server.
+    SignOut,
 }
 
 /// Settings the backend needs.
@@ -244,4 +248,9 @@ pub trait Backend {
     fn platform(&self) -> Option<Platform>;
     /// Unix seconds now.
     fn now(&self) -> i64;
+    /// On a launcher server, whether this page is signed in as its administrator; `None` where
+    /// there's nobody to sign in as (the desktop, a static site).
+    fn signed_in(&self) -> Option<bool> {
+        None
+    }
 }

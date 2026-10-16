@@ -44,29 +44,42 @@ impl LauncherUi {
         self.toast(&ctx, tl!("Copied to the clipboard"), false);
     }
 
-    /// The MCP box on an installed app's details page.
-    pub(crate) fn mcp_app_section(&mut self, ui: &mut Ui, entry: &AppEntry, t: &Tokens) {
+    /// The MCP box under an app's Website, GitHub and Releases buttons: one button-like row,
+    /// folded by default, that unfolds into the app's MCP status and settings. Everyone sees it;
+    /// changing anything asks a visitor to sign in first (the backend takes them to sign in).
+    pub(crate) fn mcp_app_section(&mut self, ui: &mut Ui, entry: &AppEntry, width: f32, t: &Tokens) {
         let Some(mcp) = self.mcp.clone() else { return };
-        if !self.caps.install_apps || entry.installed.is_none() {
+        let Some(app) = mcp.app(entry.app.id).cloned() else { return };
+        let label = format!("{} {}", tl!("MCP server"), if self.mcp_open { "↑" } else { "↓" });
+        ui.add_space(6.0);
+        if widgets::button(ui, &label, Kind::Secondary, width).clicked() {
+            self.mcp_open = !self.mcp_open;
+        }
+        if !self.mcp_open {
             return;
         }
-        let Some(app) = mcp.app(entry.app.id).cloned() else { return };
         let address = format!("{}{}", mcp.base_url, app.id);
-        egui::Frame::new().stroke(egui::Stroke::new(1.0, t.line_strong)).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
-            ui.set_width(ui.available_width());
+        egui::Frame::new().stroke(t.hairline()).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
+            ui.set_width(width - 30.0);
             ui.spacing_mut().item_spacing.y = 8.0;
-            widgets::hud(ui, tl!("MCP server"), t.faint);
             ui.label(RichText::new(fmt(tl!("Control {name} from Claude or other MCP clients"), &[("name", entry.app.name)])).color(t.muted));
-            let mut on = app.enabled;
-            if ui.checkbox(&mut on, fmt(tl!("MCP server for {name}"), &[("name", entry.app.name)])).changed() {
-                self.mcp_send(McpChange::App { app: app.id.clone(), on });
+            // Where things stand: the browser version, its MCP tool, and whether MCP is on.
+            let browser = match entry.installed.as_ref().and_then(|i| i.version.as_ref()) {
+                Some(v) => fmt(tl!("Browser version {version}"), &[("version", &v.to_string())]),
+                None => tl!("Not installed").to_string(),
+            };
+            let tool = if app.ready { tl!("MCP tool ready") } else { tl!("MCP tool not installed") };
+            let state = if app.enabled && mcp.enabled { tl!("MCP on") } else { tl!("MCP off") };
+            ui.label(RichText::new(format!("{browser} · {tool} · {state}")).color(t.ink_strong));
+            if entry.installed.is_some() {
+                let mut on = app.enabled;
+                if ui.checkbox(&mut on, fmt(tl!("MCP server for {name}"), &[("name", entry.app.name)])).changed() {
+                    self.mcp_send(McpChange::App { app: app.id.clone(), on });
+                }
             }
-            if !app.enabled {
-                return;
-            }
-            if !mcp.enabled {
+            if app.enabled && !mcp.enabled {
                 ui.label(RichText::new(tl!("Turn on the MCP server in Settings to reach it.")).size(12.5).color(t.warn));
-            } else if !app.ready && entry.job.is_none() {
+            } else if app.enabled && !app.ready && entry.job.is_none() {
                 ui.label(RichText::new(tl!("Its command-line tool isn't installed yet.")).size(12.5).color(t.warn));
             }
             widgets::hud(ui, tl!("Address"), t.faint);
@@ -90,19 +103,65 @@ impl LauncherUi {
                 )
                 .wrap(),
             );
+            if self.backend.signed_in() == Some(false) {
+                ui.label(RichText::new(tl!("Sign in to change these.")).size(12.0).color(t.muted));
+            }
         });
-        ui.add_space(8.0);
+    }
+
+    /// The account row at the top of Settings, on a launcher server.
+    pub(crate) fn account_settings(&mut self, ui: &mut Ui, t: &Tokens) {
+        let Some(signed_in) = self.backend.signed_in() else { return };
+        ui.horizontal(|ui| {
+            if signed_in {
+                ui.label(RichText::new(tl!("Signed in as administrator")).color(t.ink_strong));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if widgets::button(ui, tl!("Sign out"), Kind::Secondary, 0.0).clicked() {
+                        self.send(Command::SignOut);
+                    }
+                });
+            } else if widgets::button(ui, tl!("Sign in as administrator"), Kind::Primary, 0.0).clicked() {
+                self.send(Command::SignIn);
+            }
+        });
+        ui.add_space(6.0);
+    }
+
+    /// What the server has installed: each app's browser version and its MCP tool.
+    pub(crate) fn server_status(&mut self, ui: &mut Ui, t: &Tokens) {
+        let Some(mcp) = self.mcp.clone() else { return };
+        ui.add_space(14.0);
+        widgets::hud(ui, tl!("On this server"), t.faint);
+        ui.add_space(6.0);
+        let installed: Vec<_> = self.entries.iter().filter(|e| e.installed.is_some()).cloned().collect();
+        if installed.is_empty() {
+            ui.label(RichText::new(tl!("Not installed")).color(t.muted));
+        }
+        for e in installed {
+            let version = e.installed.as_ref().and_then(|i| i.version.as_ref()).map(ToString::to_string).unwrap_or_default();
+            let app = mcp.app(e.app.id);
+            let tool = if app.is_some_and(|a| a.ready) { tl!("MCP tool ready") } else { tl!("MCP tool not installed") };
+            let state = if mcp.enabled && app.is_some_and(|a| a.enabled) { tl!("MCP on") } else { tl!("MCP off") };
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(e.app.name).color(t.ink_strong));
+                ui.label(
+                    RichText::new(format!("{} · {tool} · {state}", fmt(tl!("Browser version {version}"), &[("version", &version)])))
+                        .size(12.5)
+                        .color(t.muted),
+                );
+            });
+        }
     }
 
     /// The MCP section of Settings.
     pub(crate) fn mcp_settings(&mut self, ui: &mut Ui, t: &Tokens) {
         let Some(mcp) = self.mcp.clone() else { return };
-        if !self.caps.install_apps {
-            return;
-        }
         ui.add_space(14.0);
         widgets::hud(ui, tl!("MCP server"), t.faint);
         ui.add_space(6.0);
+        if self.backend.signed_in() == Some(false) {
+            ui.label(RichText::new(tl!("Sign in to change these.")).size(12.0).color(t.muted));
+        }
         let mut on = mcp.enabled;
         if ui.checkbox(&mut on, tl!("Turn on the MCP server")).changed() {
             self.mcp_send(McpChange::Enabled { on });

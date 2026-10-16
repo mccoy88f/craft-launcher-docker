@@ -395,3 +395,16 @@ filter	Installed	Установлены
 	Wrong name or password.	Неверное имя или пароль.
 	The MCP server is off: turn it on in the launcher's settings first.	MCP-сервер выключен: сначала включите его в настройках лаунчера.
 	This request isn't valid: {why}	Этот запрос недействителен: {why}
+
+# Signing in as a launcher server's administrator, and what the server has installed.
+	Signed in as administrator	Вы вошли как администратор
+	Sign out	Выйти
+	Sign in as administrator	Войти как администратор
+	Sign in	Войти
+	On this server	На этом сервере
+	Browser version {version}	Браузерная версия {version}
+	MCP tool ready	Инструмент MCP готов
+	MCP tool not installed	Инструмент MCP не установлен
+	MCP on	MCP включён
+	MCP off	MCP выключен
+	Sign in to change these.	Войдите, чтобы изменить это.

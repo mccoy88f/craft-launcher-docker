@@ -279,8 +279,9 @@ impl Mcp {
         self.settings().apps.contains(app)
     }
 
-    /// The administrator's view; `base_url` is where `/mcp/` is from the page asking.
-    pub fn state(&self, hosting: &Hosting, base_url: &str) -> McpState {
+    /// What the page shows; `base_url` is where `/mcp/` is from the page asking. Without `admin`,
+    /// tokens are listed without even their last characters.
+    pub fn state(&self, hosting: &Hosting, base_url: &str, admin: bool) -> McpState {
         let s = self.settings().clone();
         let sessions: Vec<&'static str> = self.sessions.lock().unwrap_or_else(PoisonError::into_inner).values().map(|x| x.app).collect();
         McpState {
@@ -306,7 +307,7 @@ impl Mcp {
                 .map(|t| McpToken {
                     id: t.id.clone(),
                     name: t.name.clone(),
-                    hint: t.hint.clone(),
+                    hint: if admin { t.hint.clone() } else { "••••".into() },
                     apps: t.apps.clone(),
                     created_at: t.created_at,
                     last_used: t.last_used,

@@ -402,3 +402,16 @@ filter	Installed	インストール済み
 	Wrong name or password.	名前またはパスワードが違います。
 	The MCP server is off: turn it on in the launcher's settings first.	MCPサーバーがオフです。先にランチャーの設定でオンにしてください。
 	This request isn't valid: {why}	このリクエストは無効です: {why}
+
+# Signing in as a launcher server's administrator, and what the server has installed.
+	Signed in as administrator	管理者としてサインイン中
+	Sign out	サインアウト
+	Sign in as administrator	管理者としてサインイン
+	Sign in	サインイン
+	On this server	このサーバー
+	Browser version {version}	ブラウザー版 {version}
+	MCP tool ready	MCPツール準備完了
+	MCP tool not installed	MCPツール未インストール
+	MCP on	MCPオン
+	MCP off	MCPオフ
+	Sign in to change these.	変更するにはサインインしてください。

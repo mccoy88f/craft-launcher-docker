@@ -140,7 +140,6 @@ impl LauncherUi {
                     ui.set_width(ui.available_width());
                     self.gallery(ui, details, &t, rgb(entry.app.color));
                     ui.add_space(8.0);
-                    self.mcp_app_section(ui, &entry, &t);
                     for p in details.paragraphs() {
                         ui.add(egui::Label::new(RichText::new(p).size(14.5).color(t.ink)).wrap());
                     }
@@ -238,6 +237,7 @@ impl LauncherUi {
             let row_w = ui.available_width();
             ui.horizontal(|ui| self.actions_in(ui, entry, &status, row_w, false));
             link_buttons(ui, app, row_w);
+            self.mcp_app_section(ui, entry, row_w, t);
         });
         let r = hero.response.rect;
         ui.painter().rect_filled(Rect::from_min_size(r.min, vec2(r.width(), 2.0)), CornerRadius::ZERO, app_color);

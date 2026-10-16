@@ -5,8 +5,8 @@
 //!   the installed ones, which run in their own browser.
 //! - `/apps/<app>/` is an installed app: its `<app>-web-<version>.zip` from the app's GitHub
 //!   release, checked against the published SHA-256 and unpacked under the data folder.
-//! - `/admin/` is the same launcher for the administrator (HTTP Basic sign-in with
-//!   `ARTCRAFT_ADMIN_PASSWORD`), who can install, update and remove apps.
+//! - `/admin/login` signs the administrator in (`ARTCRAFT_ADMIN_PASSWORD`); the same page then
+//!   installs, updates and removes apps and runs the MCP server.
 //!
 //! - `/mcp/<app>` is an app's MCP server, for MCP clients with an access token, when the
 //!   administrator turned it on (`mcp.rs`).
@@ -38,6 +38,8 @@ pub struct Server {
     pub web_dir: PathBuf,
     /// `None`: no password is set, so nobody can install or remove apps.
     pub admin: Option<auth::Admin>,
+    /// Signed-in administrators.
+    pub sessions: auth::Sessions,
 }
 
 struct Config {
@@ -107,10 +109,11 @@ fn run() -> Result<(), String> {
     let releases = releases::Releases::new(http.clone(), &config.data, config.check_every);
     let mcp = Arc::new(mcp::Mcp::open(&config.data, config.work.clone())?);
     match &config.admin {
-        Some(a) => log::info!("administrator page at /admin/ (user {})", a.user()),
+        Some(a) => log::info!("administrator sign-in at /admin/login (user {})", a.user()),
         None => log::warn!("ARTCRAFT_ADMIN_PASSWORD isn't set: apps can be opened, but nobody can install, update or remove them"),
     }
-    let server = Arc::new(Server { hosting, mcp, http, releases, web_dir: config.web, admin: config.admin });
+    let sessions = auth::Sessions::open(&config.data);
+    let server = Arc::new(Server { hosting, mcp, http, releases, web_dir: config.web, admin: config.admin, sessions });
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| format!("couldn't start ({e})"))?;
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(config.listen).await.map_err(|e| format!("couldn't listen on {} ({e})", config.listen))?;

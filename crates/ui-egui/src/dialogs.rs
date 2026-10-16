@@ -254,6 +254,8 @@ impl LauncherUi {
             }
         };
 
+        self.account_settings(ui, &t);
+
         let mut lang_code = self.settings.language.clone();
         let installed = self.cjk_font;
         row(ui, tl!("Language"), 180.0, &mut |ui| {
@@ -349,6 +351,7 @@ impl LauncherUi {
             }
         }
 
+        self.server_status(ui, &t);
         self.mcp_settings(ui, &t);
 
         section(ui, tl!("Community"));

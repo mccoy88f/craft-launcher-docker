@@ -367,3 +367,16 @@ figcraft	Interface design and prototyping	界面设计与原型制作
 	Wrong name or password.	名称或密码错误。
 	The MCP server is off: turn it on in the launcher's settings first.	MCP 服务器已关闭：请先在启动器的设置中打开它。
 	This request isn't valid: {why}	此请求无效：{why}
+
+# Signing in as a launcher server's administrator, and what the server has installed.
+	Signed in as administrator	已以管理员身份登录
+	Sign out	退出登录
+	Sign in as administrator	以管理员身份登录
+	Sign in	登录
+	On this server	在此服务器上
+	Browser version {version}	浏览器版 {version}
+	MCP tool ready	MCP 工具已就绪
+	MCP tool not installed	MCP 工具未安装
+	MCP on	MCP 已打开
+	MCP off	MCP 已关闭
+	Sign in to change these.	登录后才能更改。

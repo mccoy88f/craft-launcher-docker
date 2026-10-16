@@ -400,3 +400,16 @@ filter	Installed	Telepítve
 	Wrong name or password.	Hibás név vagy jelszó.
 	The MCP server is off: turn it on in the launcher's settings first.	Az MCP-szerver ki van kapcsolva: előbb kapcsold be a launcher beállításaiban.
 	This request isn't valid: {why}	Ez a kérés érvénytelen: {why}
+
+# Signing in as a launcher server's administrator, and what the server has installed.
+	Signed in as administrator	Rendszergazdaként bejelentkezve
+	Sign out	Kijelentkezés
+	Sign in as administrator	Bejelentkezés rendszergazdaként
+	Sign in	Bejelentkezés
+	On this server	Ezen a szerveren
+	Browser version {version}	Böngészős verzió: {version}
+	MCP tool ready	MCP-eszköz kész
+	MCP tool not installed	MCP-eszköz nincs telepítve
+	MCP on	MCP be
+	MCP off	MCP ki
+	Sign in to change these.	A módosításhoz jelentkezz be.
