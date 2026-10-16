@@ -144,6 +144,38 @@ pub struct McpApp {
     /// `--automation-read-root`), so the server doesn't run it.
     #[serde(default)]
     pub unconfined: bool,
+    /// For an app whose release isn't compatible with MCP but whose source code is: building
+    /// its tool from source. `None` otherwise.
+    #[serde(default)]
+    pub source: Option<McpSource>,
+}
+
+/// Building an app's MCP tool from its source code, when its release can't be confined to a
+/// work folder but its code can. The server's build service (`cli-builder`) compiles it; once a
+/// compatible release is installed, the release's tool is used instead.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpSource {
+    /// The build service is running.
+    pub builder: bool,
+    pub state: SourceBuild,
+    /// The commit of `github.com/storytold/<app>` the build is (or was) made from.
+    pub commit: Option<String>,
+    /// Why the last build failed.
+    pub message: Option<String>,
+    /// The tool built from source is the one in use.
+    pub in_use: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceBuild {
+    /// No build asked for, or the last one is in use.
+    #[default]
+    Idle,
+    /// Asked for; waiting for the build service.
+    Queued,
+    Building,
+    Failed,
 }
 
 /// The folder of files made before each client had its own: kept for the administrator to
@@ -253,6 +285,10 @@ pub enum McpChange {
     /// Let MCP clients have the launcher download files from web addresses, or not.
     FileFromUrl {
         on: bool,
+    },
+    /// Build an app's MCP tool from its source code (for an app whose release can't be confined).
+    BuildFromSource {
+        app: String,
     },
     /// Delete one file of a client's work folder.
     DeleteFile {

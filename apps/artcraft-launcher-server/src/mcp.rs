@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use artcraft_launcher_core::catalog::{CraftApp, SUITE};
-use artcraft_launcher_core::hosted::{McpApp, McpFile, McpFiles, McpState, McpToken, PREVIOUS_FILES};
+use artcraft_launcher_core::hosted::{McpApp, McpFile, McpFiles, McpSource, McpState, McpToken, PREVIOUS_FILES, SourceBuild};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -32,6 +32,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
+use crate::builds::{Builds, FROM_SOURCE};
 use crate::hosting::Hosting;
 
 /// A session nobody used for this long is closed.
@@ -254,6 +255,8 @@ pub struct Mcp {
     settings: Mutex<Settings>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     sizes: Mutex<HashMap<PathBuf, (u64, Instant)>>,
+    /// The build service that builds tools from source.
+    builds: Builds,
     /// How each command-line tool confines itself to a folder, if it can (tried once per file).
     confinable: Mutex<HashMap<PathBuf, Option<Confine>>>,
     /// Download links handed to clients: the file, and until when.
@@ -279,6 +282,7 @@ impl Mcp {
             sessions: Mutex::default(),
             sizes: Mutex::default(),
             links: Mutex::default(),
+            builds: Builds::new(data.join("builds")),
             confinable: Mutex::default(),
             dirty: AtomicBool::new(false),
             codes: Mutex::default(),
@@ -334,6 +338,88 @@ impl Mcp {
             log::warn!("couldn't save the MCP settings ({e})");
         }
         self.dirty.store(false, Ordering::SeqCst);
+    }
+
+    pub fn set_builds(&mut self, builds: Builds) {
+        self.builds = builds;
+    }
+
+    /// The command-line tool to run for `app`: its release's when that one can be confined,
+    /// else the one built from its source when that one can.
+    pub fn cli(&self, app: &str, hosting: &Hosting) -> Option<PathBuf> {
+        if let Some(release) = hosting.cli(app)
+            && self.confinable(app, &release).is_some()
+        {
+            return Some(release);
+        }
+        hosting.source_cli(app).map(|(path, _)| path).filter(|path| self.confinable(app, path).is_some())
+    }
+
+    /// Asks the build service to build `app`'s tool from source.
+    pub fn build_from_source(&self, app: &CraftApp, hosting: &Hosting) -> Result<(), String> {
+        if hosting.site(app.id).is_none() {
+            return Err(format!("install {} first", app.name));
+        }
+        self.builds.request(app)
+    }
+
+    /// Takes in what the build service finished, and goes back to a release's tool once one can
+    /// be confined (an update came). Runs every minute.
+    pub fn sync_source(&self, hosting: &Hosting) {
+        for id in FROM_SOURCE {
+            let Some(app) = CraftApp::by_id(id) else { continue };
+            if hosting.site(id).is_none() {
+                continue;
+            }
+            let source = hosting.source_cli(id);
+            if let Some(release) = hosting.cli(id)
+                && self.confinable(id, &release).is_some()
+            {
+                if source.is_some() {
+                    hosting.drop_source_cli(app);
+                    log::info!("{}: its release's MCP tool is compatible now, so the one built from source is gone", app.name);
+                }
+                continue;
+            }
+            let Some(status) = self.builds.status(id) else { continue };
+            let Some(commit) = status.commit.filter(|_| status.done) else { continue };
+            if source.as_ref().is_some_and(|(_, c)| *c == commit) {
+                continue;
+            }
+            let Some(built) = self.builds.output(app, &commit) else { continue };
+            match hosting.adopt_source_cli(app, &built, &commit) {
+                Ok(path) => match self.confinable(id, &path) {
+                    Some(_) => log::info!("{}: MCP tool built from source ({}) is ready", app.name, &commit[..12]),
+                    None => log::warn!("{}: the MCP tool built from source ({}) can't be confined either", app.name, &commit[..12]),
+                },
+                Err(e) => log::warn!("{}: couldn't take in the MCP tool built from source ({e})", app.name),
+            }
+        }
+    }
+
+    /// Where building `app`'s tool from source stands, for an app in [`FROM_SOURCE`] whose
+    /// release's tool can't be confined.
+    fn source_state(&self, app: &str, hosting: &Hosting, release_ok: bool) -> Option<McpSource> {
+        if !FROM_SOURCE.contains(&app) || release_ok || hosting.site(app).is_none() {
+            return None;
+        }
+        let built = hosting.source_cli(app);
+        let in_use = built.as_ref().is_some_and(|(path, _)| self.confinable(app, path).is_some());
+        let status = self.builds.status(app);
+        let state = status.as_ref().map_or(SourceBuild::Idle, |s| s.state);
+        let commit = match (&status, &built) {
+            (Some(s), _) if matches!(s.state, SourceBuild::Building | SourceBuild::Failed) => s.commit.clone(),
+            (_, Some((_, c))) => Some(c.clone()),
+            (Some(s), None) => s.commit.clone(),
+            _ => None,
+        };
+        Some(McpSource {
+            builder: self.builds.alive(),
+            state,
+            commit,
+            message: (state == SourceBuild::Failed).then(|| self.builds.why_failed(app)),
+            in_use,
+        })
     }
 
     pub fn work_dir(&self, app: &str) -> PathBuf {
@@ -426,14 +512,20 @@ impl Mcp {
             base_url: base_url.to_string(),
             apps: SUITE
                 .iter()
-                .map(|a| McpApp {
-                    id: a.id.to_string(),
-                    enabled: s.apps.contains(a.id),
-                    ready: hosting.cli(a.id).is_some(),
-                    work_dir: self.work_dir(a.id).display().to_string(),
-                    used_bytes: self.used_at(&self.work_dir(a.id)),
-                    sessions: u32::try_from(sessions.iter().filter(|x| **x == a.id).count()).unwrap_or(u32::MAX),
-                    unconfined: hosting.cli(a.id).is_some_and(|cli| self.confinable(a.id, &cli).is_none()),
+                .map(|a| {
+                    let release = hosting.cli(a.id);
+                    let release_ok = release.as_ref().is_some_and(|cli| self.confinable(a.id, cli).is_some());
+                    let usable = release_ok || self.cli(a.id, hosting).is_some();
+                    McpApp {
+                        id: a.id.to_string(),
+                        enabled: s.apps.contains(a.id),
+                        ready: release.is_some() || usable,
+                        work_dir: self.work_dir(a.id).display().to_string(),
+                        used_bytes: self.used_at(&self.work_dir(a.id)),
+                        sessions: u32::try_from(sessions.iter().filter(|x| **x == a.id).count()).unwrap_or(u32::MAX),
+                        unconfined: release.is_some() && !usable,
+                        source: self.source_state(a.id, hosting, release_ok),
+                    }
                 })
                 .collect(),
             tokens: s
@@ -836,7 +928,7 @@ impl Mcp {
                 return Err(Refusal::Off);
             }
         }
-        if hosting.cli(app).is_none() {
+        if self.cli(app, hosting).is_none() {
             return Err(Refusal::Off);
         }
         let secret = authorization
@@ -1682,6 +1774,62 @@ mod tests {
         let other = dir.path().join("root-only-cli-2");
         std::fs::copy(&cli, &other).unwrap();
         assert_eq!(mcp.confinable("deckcraft", &other), None, "--root is trusted only where it's documented");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_tool_built_from_source_stands_in_until_a_release_can_be_confined() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let tool = |path: &Path, confines: bool| {
+            let body = if confines {
+                "#!/bin/sh\nread line\necho '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}'\n"
+            } else {
+                "#!/bin/sh\necho 'unknown mcp option `--automation-read-root`' >&2\nexit 1\n"
+            };
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        // DeckCraft 0.7.0 installed, its release's tool not confinable.
+        let app_dir = dir.path().join("apps/deckcraft");
+        std::fs::create_dir_all(app_dir.join("0.7.0-1")).unwrap();
+        std::fs::write(app_dir.join("0.7.0-1/index.html"), "deck").unwrap();
+        tool(&app_dir.join("cli-0.7.0-1/deckcraft-cli"), false);
+        std::fs::write(
+            app_dir.join("installed.json"),
+            r#"{"version":"0.7.0","tag":"v0.7.0","dir":"0.7.0-1","asset":"a.zip","installed_at":0,"cli":"cli-0.7.0-1/deckcraft-cli"}"#,
+        )
+        .unwrap();
+        let hosting = Hosting::open(dir.path(), artcraft_launcher_native::http::Http::new().unwrap()).unwrap();
+        let mut mcp = Mcp::open(dir.path(), dir.path().join("work")).unwrap();
+        let builds = dir.path().join("builds");
+        mcp.set_builds(Builds::new(builds.clone()));
+        assert!(mcp.cli("deckcraft", &hosting).is_none());
+        let state = mcp.state(&hosting, "mcp/", true);
+        let deck = state.app("deckcraft").unwrap();
+        assert!(deck.unconfined && deck.source.as_ref().is_some_and(|s| !s.builder && !s.in_use));
+        let film = state.app("filmcraft").unwrap();
+        assert!(film.source.is_none());
+
+        // The build service finished a build: it's taken in and used.
+        let commit = "1dc6972a3b4c5d6e7f8091a2b3c4d5e6f7081920";
+        tool(&builds.join("out/deckcraft").join(commit).join("deckcraft-cli"), true);
+        std::fs::create_dir_all(builds.join("status")).unwrap();
+        std::fs::write(builds.join("status/deckcraft.json"), format!(r#"{{"state":"done","commit":"{commit}"}}"#)).unwrap();
+        mcp.sync_source(&hosting);
+        let used = mcp.cli("deckcraft", &hosting).unwrap();
+        assert!(used.ends_with("cli-src-1dc6972a3b4c/deckcraft-cli"), "{}", used.display());
+        let deck = mcp.state(&hosting, "mcp/", true).apps.into_iter().find(|a| a.id == "deckcraft").unwrap();
+        assert!(deck.ready && !deck.unconfined && deck.source.is_some_and(|s| s.in_use && s.commit.as_deref() == Some(commit)));
+
+        // A release whose tool can be confined: it's used, and the one built from source goes.
+        tool(&app_dir.join("cli-0.7.0-1/deckcraft-cli"), true);
+        mcp.confinable.lock().unwrap().clear();
+        mcp.sync_source(&hosting);
+        assert!(mcp.cli("deckcraft", &hosting).unwrap().ends_with("cli-0.7.0-1/deckcraft-cli"));
+        assert!(hosting.source_cli("deckcraft").is_none() && !app_dir.join("cli-src-1dc6972a3b4c").exists());
+        assert!(mcp.state(&hosting, "mcp/", true).app("deckcraft").unwrap().source.is_none());
     }
 
     /// `ARTCRAFT_PROBE_CLIS=a:b:c cargo test probe_real -- --ignored --nocapture`: tries the

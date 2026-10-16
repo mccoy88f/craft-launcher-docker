@@ -425,4 +425,14 @@ filter	Installed	Installées
 @plural	deleted in {n} day|deleted in {n} days	supprimé dans {n} jour|supprimé dans {n} jours
 @plural	…and {n} more file|…and {n} more files	…et {n} autre fichier|…et {n} autres fichiers
 	MCP tool not usable	Outil MCP inutilisable
-	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	L'outil MCP de cette version ne peut pas être confiné à son dossier de travail : le serveur ne le lance donc pas. Une version plus récente de l'application fonctionnera.
+	Not yet compatible with MCP	Pas encore compatible avec MCP
+	This version of the app can't keep its MCP tool inside its work folder, so the server doesn't run it. It will work once the app supports it.	Cette version de l'application ne peut pas confiner son outil MCP à son dossier de travail : le serveur ne le lance donc pas. Cela fonctionnera quand l'application le prendra en charge.
+	MCP tool built from source ({commit})	Outil MCP compilé depuis les sources ({commit})
+	When a release that's compatible comes out, the launcher uses it instead.	Dès qu'une version compatible sortira, le lanceur l'utilisera à la place.
+	This release isn't compatible with MCP yet, but the app's source code is: the MCP tool can be built from it.	Cette version n'est pas encore compatible avec MCP, mais le code source de l'application l'est : l'outil MCP peut être compilé à partir de celui-ci.
+	Waiting for the build service…	En attente du service de compilation…
+	Building the MCP tool from source… (5–20 minutes)	Compilation de l'outil MCP depuis les sources… (5 à 20 minutes)
+	The build failed: {why}	La compilation a échoué : {why}
+	Building needs the build service (cli-builder) in the Docker Compose file: see the guide.	La compilation nécessite le service de compilation (cli-builder) dans le fichier Docker Compose : voir le guide.
+	Build again	Recompiler
+	Build the MCP tool from source	Installer l'outil MCP depuis les sources

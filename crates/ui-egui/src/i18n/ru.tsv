@@ -423,4 +423,14 @@ filter	Installed	Установлены
 @plural	deleted in {n} day|deleted in {n} days	будет удалён через {n} день|будет удалён через {n} дня|будет удалён через {n} дней
 @plural	…and {n} more file|…and {n} more files	…и ещё {n} файл|…и ещё {n} файла|…и ещё {n} файлов
 	MCP tool not usable	Инструмент MCP нельзя использовать
-	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	Инструмент MCP этой версии нельзя ограничить его рабочей папкой, поэтому сервер его не запускает. С более новой версией приложения всё заработает.
+	Not yet compatible with MCP	Пока несовместимо с MCP
+	This version of the app can't keep its MCP tool inside its work folder, so the server doesn't run it. It will work once the app supports it.	Эта версия приложения не может ограничить свой инструмент MCP рабочей папкой, поэтому сервер его не запускает. Всё заработает, когда приложение это поддержит.
+	MCP tool built from source ({commit})	Инструмент MCP собран из исходного кода ({commit})
+	When a release that's compatible comes out, the launcher uses it instead.	Когда выйдет совместимая версия, лаунчер будет использовать её.
+	This release isn't compatible with MCP yet, but the app's source code is: the MCP tool can be built from it.	Эта версия пока несовместима с MCP, но исходный код приложения совместим: инструмент MCP можно собрать из него.
+	Waiting for the build service…	Ожидание службы сборки…
+	Building the MCP tool from source… (5–20 minutes)	Сборка инструмента MCP из исходного кода… (5–20 минут)
+	The build failed: {why}	Сборка не удалась: {why}
+	Building needs the build service (cli-builder) in the Docker Compose file: see the guide.	Для сборки нужна служба сборки (cli-builder) в файле Docker Compose: см. руководство.
+	Build again	Собрать заново
+	Build the MCP tool from source	Установить инструмент MCP из исходного кода

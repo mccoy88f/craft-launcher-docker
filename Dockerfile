@@ -55,8 +55,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin artcraft \
-    && mkdir -p /data /work \
-    && chown artcraft:artcraft /data /work
+    && mkdir -p /data /work /builds \
+    && chown artcraft:artcraft /data /work /builds
 COPY --from=build /out/artcraft-launcher-server /usr/local/bin/artcraft-launcher-server
 COPY --from=build /out/web /srv/artcraft-launcher
 COPY LICENSE-MIT LICENSE-APACHE NOTICE ATTRIBUTION.md /usr/share/doc/artcraft-launcher/
@@ -64,9 +64,11 @@ USER artcraft
 ENV ARTCRAFT_LISTEN=0.0.0.0:8080 \
     ARTCRAFT_DATA_DIR=/data \
     ARTCRAFT_WORK_DIR=/work \
+    ARTCRAFT_BUILDS_DIR=/builds \
     ARTCRAFT_WEB_DIR=/srv/artcraft-launcher
-# /data: installed apps and settings; /work: the apps' MCP work folders.
-VOLUME ["/data", "/work"]
+# /data: installed apps and settings; /work: the apps' MCP work folders; /builds: shared with the
+# build service (cli-builder), when there is one.
+VOLUME ["/data", "/work", "/builds"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD ["artcraft-launcher-server", "--healthcheck"]
 CMD ["artcraft-launcher-server"]

@@ -395,4 +395,14 @@ filter	Installed	Nainstalováno
 @plural	deleted in {n} day|deleted in {n} days	bude smazán za {n} den|bude smazán za {n} dny|bude smazán za {n} dní
 @plural	…and {n} more file|…and {n} more files	…a {n} další soubor|…a {n} další soubory|…a {n} dalších souborů
 	MCP tool not usable	Nástroj MCP nelze použít
-	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	Nástroj MCP této verze nelze omezit na jeho pracovní složku, proto ho server nespouští. S novější verzí aplikace bude fungovat.
+	Not yet compatible with MCP	Zatím není kompatibilní s MCP
+	This version of the app can't keep its MCP tool inside its work folder, so the server doesn't run it. It will work once the app supports it.	Tato verze aplikace neumí omezit svůj nástroj MCP na pracovní složku, proto ho server nespouští. Bude fungovat, až to aplikace podpoří.
+	MCP tool built from source ({commit})	Nástroj MCP sestavený ze zdrojového kódu ({commit})
+	When a release that's compatible comes out, the launcher uses it instead.	Až vyjde kompatibilní verze, spouštěč použije ji.
+	This release isn't compatible with MCP yet, but the app's source code is: the MCP tool can be built from it.	Tato verze zatím není kompatibilní s MCP, ale zdrojový kód aplikace ano: nástroj MCP lze z něj sestavit.
+	Waiting for the build service…	Čeká se na službu sestavení…
+	Building the MCP tool from source… (5–20 minutes)	Sestavuje se nástroj MCP ze zdrojového kódu… (5–20 minut)
+	The build failed: {why}	Sestavení se nezdařilo: {why}
+	Building needs the build service (cli-builder) in the Docker Compose file: see the guide.	K sestavení je potřeba služba sestavení (cli-builder) v souboru Docker Compose: viz návod.
+	Build again	Sestavit znovu
+	Build the MCP tool from source	Nainstalovat nástroj MCP ze zdrojového kódu

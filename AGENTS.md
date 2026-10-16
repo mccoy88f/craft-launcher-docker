@@ -78,7 +78,11 @@ settings file must produce an error the user can act on, never a panic. Shared s
   the client's own work folder (`<work>/<app>/<token id>`) as its only read and write root and a
   clean environment (`--automation-read-root`/`--automation-write-root`, or `--root` only for apps
   listed in `mcp::OWN_ROOT` whose docs say it confines everything; a tool that refuses both is
-  never run); clients never see each other's folders, nor `previous/`. The launcher's own
+  never run);
+  a tool built from source comes only from the `cli-builder` service (`builds.rs`,
+  `packaging/builder/`), which clones only `github.com/storytold/<app>` for apps in
+  `builds::FROM_SOURCE`, sees only the shared builds folder, and whose output passes the same
+  confinement check; a release's tool that can be confined always wins; clients never see each other's folders, nor `previous/`. The launcher's own
   MCP tools (`launcher_*`) resolve paths only inside that folder (no `..`, no links); download
   links are random and expire after an hour; `launcher_file_from_url` is off unless the
   administrator turns it on, fetches only https addresses whose every IP is public (each redirect

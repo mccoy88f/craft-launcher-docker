@@ -105,6 +105,7 @@ fn mcp_event() -> Event {
                 used_bytes: 3 << 20,
                 sessions: 0,
                 unconfined: false,
+                source: None,
             })
             .collect(),
         tokens: vec![McpToken {
@@ -285,4 +286,98 @@ fn revoking_a_token_asks_first_and_says_its_files_go() {
     h.get_by_label("Revoke").click();
     h.run_steps(2);
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::RevokeToken { id }) if id == "t1")));
+}
+
+/// The MCP state with PhotoCraft's release not compatible but its code buildable (`source`), and
+/// EffectCraft's not compatible at all.
+fn incompatible_event(source: artcraft_launcher_core::hosted::McpSource) -> Event {
+    let Event::Mcp(mut state) = mcp_event() else { unreachable!() };
+    for app in &mut state.apps {
+        match app.id.as_str() {
+            "photocraft" => {
+                app.unconfined = !source.in_use;
+                app.source = Some(source.clone());
+            }
+            "effectcraft" => {
+                app.ready = true;
+                app.unconfined = true;
+            }
+            _ => {}
+        }
+    }
+    Event::Mcp(state)
+}
+
+#[test]
+fn an_app_whose_code_is_compatible_can_have_its_tool_built_from_source() {
+    use artcraft_launcher_core::hosted::{McpChange, McpSource, SourceBuild};
+    let mut evs = events();
+    evs.push(incompatible_event(McpSource { builder: true, ..McpSource::default() }));
+    let (mut h, sent) = harness_with(true, evs);
+    // Not compatible: no MCP badge on its card.
+    assert_eq!(h.query_all_by_label("MCP").count(), 0);
+    h.get_by_label("PhotoCraft details").click();
+    h.run_steps(10);
+    h.get_by_label("MCP server ↓").click();
+    h.run_steps(4);
+    h.get_by_label("Not yet compatible with MCP");
+    h.get_by_label_contains("the MCP tool can be built from it");
+    h.get_by_label_contains("MCP tool not usable");
+    h.get_by_label("Build the MCP tool from source").click();
+    h.run_steps(2);
+    assert!(sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::BuildFromSource { app }) if app == "photocraft")));
+
+    // Building: no button until it ends.
+    let mut evs = events();
+    evs.push(incompatible_event(McpSource {
+        builder: true,
+        state: SourceBuild::Building,
+        commit: Some("1dc6972a".repeat(5)),
+        ..McpSource::default()
+    }));
+    let (mut h, _) = harness_with(true, evs);
+    h.get_by_label("PhotoCraft details").click();
+    h.run_steps(10);
+    h.get_by_label("MCP server ↓").click();
+    h.run_steps(4);
+    h.get_by_label_contains("Building the MCP tool from source");
+    assert!(h.query_by_label("Build the MCP tool from source").is_none());
+
+    // Built and in use: ready, with the commit, and it can be built again.
+    let mut evs = events();
+    evs.push(incompatible_event(McpSource { builder: true, in_use: true, commit: Some("1dc6972a".repeat(5)), ..McpSource::default() }));
+    let (mut h, _) = harness_with(true, evs);
+    assert_eq!(h.query_all_by_label("MCP").count(), 1, "usable again: the badge is back");
+    h.get_by_label("PhotoCraft details").click();
+    h.run_steps(10);
+    h.get_by_label("MCP server ↓").click();
+    h.run_steps(4);
+    h.get_by_label("MCP tool built from source (1dc6972)");
+    h.get_by_label("Build again");
+    assert!(h.query_by_label("Not yet compatible with MCP").is_none());
+
+    // No build service: says how to add one.
+    let mut evs = events();
+    evs.push(incompatible_event(McpSource::default()));
+    let (mut h, _) = harness_with(true, evs);
+    h.get_by_label("PhotoCraft details").click();
+    h.run_steps(10);
+    h.get_by_label("MCP server ↓").click();
+    h.run_steps(4);
+    h.get_by_label_contains("Building needs the build service");
+    assert!(h.query_by_label("Build the MCP tool from source").is_none());
+}
+
+#[test]
+fn an_app_that_isnt_compatible_says_so_in_its_mcp_settings() {
+    let mut events = events();
+    events.push(incompatible_event(artcraft_launcher_core::hosted::McpSource::default()));
+    let (mut h, _) = harness_with(true, events);
+    h.get_by_label("EffectCraft details").click();
+    h.run_steps(10);
+    h.get_by_label("MCP server ↓").click();
+    h.run_steps(4);
+    h.get_by_label("Not yet compatible with MCP");
+    h.get_by_label_contains("It will work once the app supports it");
+    assert!(h.query_by_label("Build the MCP tool from source").is_none());
 }

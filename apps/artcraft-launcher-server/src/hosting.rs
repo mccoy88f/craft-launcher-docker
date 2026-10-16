@@ -54,6 +54,14 @@ pub struct Record {
     /// The command-line tool, relative to `apps/<app>/` (`cli-0.8.2-1/photocraft-cli`).
     #[serde(default)]
     pub cli: Option<String>,
+    /// The command-line tool built from the app's source code, relative to `apps/<app>/`
+    /// (`cli-src-1dc6972a3b4c/deckcraft-cli`), for a release whose own tool can't be confined.
+    /// Kept across updates until a release's tool can be.
+    #[serde(default)]
+    pub source_cli: Option<String>,
+    /// The commit it was built from.
+    #[serde(default)]
+    pub source_commit: Option<String>,
 }
 
 /// A download kept for later: paused, or stopped by a lost connection.
@@ -150,6 +158,57 @@ impl Hosting {
         let record = inner.apps.get(app)?.record.as_ref()?;
         let path = self.apps_dir.join(app).join(record.cli.as_ref()?);
         path.is_file().then_some(path)
+    }
+
+    /// The app's command-line tool built from source, and the commit it was built from.
+    pub fn source_cli(&self, app: &str) -> Option<(PathBuf, String)> {
+        let inner = self.lock();
+        let record = inner.apps.get(app)?.record.as_ref()?;
+        let path = self.apps_dir.join(app).join(record.source_cli.as_ref()?);
+        path.is_file().then(|| (path, record.source_commit.clone().unwrap_or_default()))
+    }
+
+    /// Takes in a command-line tool built from source (copied from the build service's folder)
+    /// as the app's, replacing an earlier one.
+    pub fn adopt_source_cli(&self, app: &CraftApp, built: &Path, commit: &str) -> Result<PathBuf, String> {
+        let Some(mut record) = self.lock().apps.get(app.id).and_then(|s| s.record.clone()) else {
+            return Err(format!("{} isn't installed", app.name));
+        };
+        let short: String = commit.chars().filter(char::is_ascii_hexdigit).take(12).collect();
+        let app_dir = self.apps_dir.join(app.id);
+        let folder = format!("cli-src-{short}");
+        let name = format!("{}-cli", app.stems().next().unwrap_or(app.id));
+        let dest = app_dir.join(&folder);
+        std::fs::create_dir_all(&dest).map_err(|e| format!("couldn't create {} ({e})", dest.display()))?;
+        let file = dest.join(&name);
+        let partial = dest.join(format!(".{name}.part"));
+        std::fs::copy(built, &partial).map_err(|e| format!("couldn't copy the built tool ({e})"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755)).map_err(|e| format!("couldn't make it runnable ({e})"))?;
+        }
+        std::fs::rename(&partial, &file).map_err(|e| format!("couldn't put the built tool in place ({e})"))?;
+        let old = record.source_cli.replace(format!("{folder}/{name}"));
+        record.source_commit = Some(commit.to_string());
+        self.save_record(app, &app_dir, record)?;
+        if let Some(old) = old.and_then(|o| o.split('/').next().map(str::to_string)).filter(|o| *o != folder) {
+            let _ = std::fs::remove_dir_all(app_dir.join(old));
+        }
+        Ok(file)
+    }
+
+    /// Forgets the tool built from source (a release's tool can be confined now).
+    pub fn drop_source_cli(&self, app: &CraftApp) {
+        let Some(mut record) = self.lock().apps.get(app.id).and_then(|s| s.record.clone()) else { return };
+        let Some(old) = record.source_cli.take() else { return };
+        record.source_commit = None;
+        let app_dir = self.apps_dir.join(app.id);
+        if self.save_record(app, &app_dir, record).is_ok()
+            && let Some(folder) = old.split('/').next()
+        {
+            let _ = std::fs::remove_dir_all(app_dir.join(folder));
+        }
     }
 
     /// Starts installing (or updating to) `release` of `app` on a worker thread; `with_cli`: its
@@ -342,11 +401,15 @@ impl Hosting {
             asset: asset.name.clone(),
             installed_at: artcraft_launcher_native::now(),
             cli,
+            // A tool built from source stays until a release's tool can be confined.
+            source_cli: previous.as_ref().and_then(|p| p.source_cli.clone()),
+            source_commit: previous.as_ref().and_then(|p| p.source_commit.clone()),
         };
+        let source_dir = record.source_cli.as_deref().and_then(|c| c.split('/').next()).unwrap_or("").to_string();
         self.save_record(app, &app_dir, record)?;
         // Keep the folder visitors may still be loading from; older ones go.
         let previous_dir = previous.as_ref().map_or("", |p| p.dir.as_str());
-        prune(&app_dir, &[dir.as_str(), previous_dir, &format!("cli-{dir}")]);
+        prune(&app_dir, &[dir.as_str(), previous_dir, &format!("cli-{dir}"), &source_dir]);
         let verb = if previous.is_some() { "updated to" } else { "installed:" };
         log::info!("{} {verb} {label}", app.name);
         Ok(format!("{} {verb} {label}{cli_note}", app.name))
@@ -647,7 +710,16 @@ mod tests {
     fn reads_only_records_that_point_at_a_site() {
         let dir = tempfile::tempdir().unwrap();
         let record = |d: &str| {
-            let r = Record { version: "0.8.2".into(), tag: "v0.8.2".into(), dir: d.into(), asset: "a.zip".into(), installed_at: 0, cli: None };
+            let r = Record {
+                version: "0.8.2".into(),
+                tag: "v0.8.2".into(),
+                dir: d.into(),
+                asset: "a.zip".into(),
+                installed_at: 0,
+                cli: None,
+                source_cli: None,
+                source_commit: None,
+            };
             std::fs::write(dir.path().join(RECORD), serde_json::to_vec(&r).unwrap()).unwrap();
         };
         record("0.8.2-1");

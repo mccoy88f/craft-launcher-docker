@@ -428,4 +428,14 @@ filter	Installed	Telepítve
 @plural	deleted in {n} day|deleted in {n} days	{n} nap múlva törlődik|{n} nap múlva törlődik
 @plural	…and {n} more file|…and {n} more files	…és még {n} fájl|…és még {n} fájl
 	MCP tool not usable	Az MCP-eszköz nem használható
-	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	Ennek a kiadásnak az MCP-eszköze nem korlátozható a munkamappájára, ezért a szerver nem indítja el. Az alkalmazás újabb kiadásával működni fog.
+	Not yet compatible with MCP	Még nem kompatibilis az MCP-vel
+	This version of the app can't keep its MCP tool inside its work folder, so the server doesn't run it. It will work once the app supports it.	Az alkalmazás ezen verziója nem tudja a munkamappájára korlátozni az MCP-eszközét, ezért a szerver nem indítja el. Működni fog, amint az alkalmazás támogatja.
+	MCP tool built from source ({commit})	Forráskódból fordított MCP-eszköz ({commit})
+	When a release that's compatible comes out, the launcher uses it instead.	Amikor megjelenik egy kompatibilis kiadás, az indító azt használja helyette.
+	This release isn't compatible with MCP yet, but the app's source code is: the MCP tool can be built from it.	Ez a kiadás még nem kompatibilis az MCP-vel, de az alkalmazás forráskódja igen: az MCP-eszköz lefordítható belőle.
+	Waiting for the build service…	Várakozás a fordítószolgáltatásra…
+	Building the MCP tool from source… (5–20 minutes)	Az MCP-eszköz fordítása forráskódból… (5–20 perc)
+	The build failed: {why}	A fordítás nem sikerült: {why}
+	Building needs the build service (cli-builder) in the Docker Compose file: see the guide.	A fordításhoz a fordítószolgáltatás (cli-builder) kell a Docker Compose fájlban: lásd az útmutatót.
+	Build again	Újrafordítás
+	Build the MCP tool from source	MCP-eszköz telepítése forráskódból

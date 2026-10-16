@@ -135,11 +135,37 @@ The first lines each app's tool writes about itself are in the log too (`<app> m
 
 The server tries each app's command-line tool once, confined to a work folder
 (`--automation-read-root` and `--automation-write-root`; for PdfCraft, its own `--root`, which
-confines every read and write too). One that refuses shows **MCP tool not usable** and isn't run,
-since it could reach every file the server can; the log says what it answered. Its next release
-that takes the options works as soon as the app is updated. As of October 2026, PhotoCraft,
-VectorCraft, EffectCraft, WordCraft, SoundCraft and PdfCraft work; FilmCraft, LightCraft,
-DesignCraft, DeckCraft, GridCraft, CadCraft and FigCraft don't yet.
+confines every read and write too). One that refuses isn't run, since it could reach every file
+the server can; the log says what it answered, and the app's **MCP server** box says **Not yet
+compatible with MCP**. Its next release that takes the options works as soon as the app is updated.
+As of October 2026:
+
+| | Apps |
+|---|---|
+| Work | PhotoCraft, VectorCraft, EffectCraft, WordCraft, SoundCraft, PdfCraft |
+| Release not compatible, source code is: build from source (below) | DeckCraft, DesignCraft |
+| Not compatible yet | FilmCraft, LightCraft, GridCraft, CadCraft, FigCraft |
+
+### Building an MCP tool from source
+
+For an app whose release isn't compatible but whose code on `main` is (the list is
+`FROM_SOURCE` in `apps/artcraft-launcher-server/src/builds.rs`), its **MCP server** box offers
+**Build the MCP tool from source**. The build service compiles it:
+
+- **`cli-builder`** is a second service in the compose files (`packaging/builder/`), on the
+  official Rust image. It sees only the `launcher-builds` volume it shares with the launcher, never
+  the launcher's data or tokens, and clones only `https://github.com/storytold/<app>`. Idle
+  otherwise.
+- A build runs `cargo build --release --locked -p <app>-cli` at the latest commit of `main`:
+  5-20 minutes, about 3 GB of disk while it runs (cleaned up afterwards) and about 1 GB of memory
+  per job (`ARTCRAFT_BUILD_JOBS`, 2 by default).
+- The launcher takes the result in by itself, runs it only if it confines itself like a release's
+  tool, and shows **MCP tool built from source (commit)**. **Build again** fetches newer code.
+- Once an update brings a release whose own tool is compatible, the launcher uses that and deletes
+  the one built from source.
+
+Without the `cli-builder` service, the box says it's needed. Remove the service (and the
+`launcher-builds` lines) if you don't want it.
 
 ## Settings
 
@@ -155,6 +181,8 @@ DesignCraft, DeckCraft, GridCraft, CadCraft and FigCraft don't yet.
 | `ARTCRAFT_LISTEN` | `0.0.0.0:8080` | Where the server listens inside the container. |
 | `ARTCRAFT_DATA_DIR` | `/data` | Installed apps, MCP settings and tokens, saved release answers and downloads (the `launcher-data` volume). |
 | `ARTCRAFT_WORK_DIR` | `/work` | The apps' MCP work folders (the `launcher-work` volume). |
+| `ARTCRAFT_BUILDS_DIR` | `/builds` | Shared with the build service, for MCP tools built from source (the `launcher-builds` volume). |
+| `ARTCRAFT_BUILD_JOBS` | `2` | On `cli-builder`: parallel compile jobs (about 1 GB of memory each). |
 | `ARTCRAFT_WEB_DIR` | `/srv/artcraft-launcher` | The launcher's web build, put there by the image. |
 | `ARTCRAFT_LOG` | `info` | `error`, `warn`, `info`, `debug` or `trace`. |
 

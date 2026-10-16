@@ -16,6 +16,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod auth;
+mod builds;
 mod hosting;
 mod mcp;
 mod oauth;
@@ -47,6 +48,7 @@ struct Config {
     data: PathBuf,
     web: PathBuf,
     work: PathBuf,
+    builds: PathBuf,
     admin: Option<auth::Admin>,
     check_every: Duration,
 }
@@ -82,6 +84,7 @@ impl Config {
             data: env("ARTCRAFT_DATA_DIR").map_or_else(|| PathBuf::from("/data"), PathBuf::from),
             web: env("ARTCRAFT_WEB_DIR").map_or_else(|| PathBuf::from("/srv/artcraft-launcher"), PathBuf::from),
             work: env("ARTCRAFT_WORK_DIR").map_or_else(|| PathBuf::from("/work"), PathBuf::from),
+            builds: env("ARTCRAFT_BUILDS_DIR").map_or_else(|| PathBuf::from("/builds"), PathBuf::from),
             admin,
             check_every: Duration::from_secs(minutes * 60),
         })
@@ -107,7 +110,9 @@ fn run() -> Result<(), String> {
     let http = artcraft_launcher_native::http::Http::new()?;
     let hosting = Arc::new(hosting::Hosting::open(&config.data, http.clone())?);
     let releases = releases::Releases::new(http.clone(), &config.data, config.check_every);
-    let mcp = Arc::new(mcp::Mcp::open(&config.data, config.work.clone())?);
+    let mut mcp = mcp::Mcp::open(&config.data, config.work.clone())?;
+    mcp.set_builds(builds::Builds::new(config.builds.clone()));
+    let mcp = Arc::new(mcp);
     match &config.admin {
         Some(a) => log::info!("administrator sign-in at /admin/login (user {})", a.user()),
         None => log::warn!("ARTCRAFT_ADMIN_PASSWORD isn't set: apps can be opened, but nobody can install, update or remove them"),
@@ -118,13 +123,18 @@ fn run() -> Result<(), String> {
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(config.listen).await.map_err(|e| format!("couldn't listen on {} ({e})", config.listen))?;
         log::info!("ArtCraft Launcher server listening on http://{}", config.listen);
-        let upkeep = server.mcp.clone();
+        let (upkeep, hosted) = (server.mcp.clone(), server.hosting.clone());
         tokio::spawn(async move {
             let mut every = tokio::time::interval(Duration::from_secs(60));
             loop {
                 every.tick().await;
-                let mcp = upkeep.clone();
-                let _ = tokio::task::spawn_blocking(move || mcp.maintain()).await;
+                let (mcp, hosting) = (upkeep.clone(), hosted.clone());
+                let _ = tokio::task::spawn_blocking(move || {
+                    mcp.maintain();
+                    // Takes in tools the build service finished.
+                    mcp.sync_source(&hosting);
+                })
+                .await;
             }
         });
         axum::serve(listener, routes::router(server)).with_graceful_shutdown(shutdown()).await.map_err(|e| format!("the server stopped ({e})"))

@@ -395,4 +395,14 @@ figcraft	Interface design and prototyping	界面设计与原型制作
 @plural	deleted in {n} day|deleted in {n} days	{n} 天后删除
 @plural	…and {n} more file|…and {n} more files	…还有 {n} 个文件
 	MCP tool not usable	MCP 工具不可用
-	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	此版本的 MCP 工具无法限制在其工作文件夹内，因此服务器不会运行它。应用的新版本将可以使用。
+	Not yet compatible with MCP	尚不兼容 MCP
+	This version of the app can't keep its MCP tool inside its work folder, so the server doesn't run it. It will work once the app supports it.	此版本的应用无法将其 MCP 工具限制在工作文件夹内，因此服务器不会运行它。等应用支持后即可使用。
+	MCP tool built from source ({commit})	从源代码构建的 MCP 工具（{commit}）
+	When a release that's compatible comes out, the launcher uses it instead.	兼容的版本发布后，启动器会改用该版本。
+	This release isn't compatible with MCP yet, but the app's source code is: the MCP tool can be built from it.	此版本尚不兼容 MCP，但应用的源代码已兼容：可以从源代码构建 MCP 工具。
+	Waiting for the build service…	正在等待构建服务…
+	Building the MCP tool from source… (5–20 minutes)	正在从源代码构建 MCP 工具…（5–20 分钟）
+	The build failed: {why}	构建失败：{why}
+	Building needs the build service (cli-builder) in the Docker Compose file: see the guide.	构建需要 Docker Compose 文件中的构建服务（cli-builder）：请参阅指南。
+	Build again	重新构建
+	Build the MCP tool from source	从源代码安装 MCP 工具

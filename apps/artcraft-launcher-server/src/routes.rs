@@ -83,6 +83,10 @@ fn no_store(mut response: Response) -> Response {
 
 /// What everyone sees: the apps and the MCP server (tokens without their hints unless signed in).
 fn view(server: &Server, admin: bool) -> ServerState {
+    if admin {
+        // A build that just finished shows at once, not at the next minute.
+        server.mcp.sync_source(&server.hosting);
+    }
     let mut state = server.hosting.state(admin, "apps/");
     state.mcp = Some(server.mcp.state(&server.hosting, "mcp/", admin));
     state
@@ -174,6 +178,7 @@ async fn mcp_change(State(server): State<Shared>, headers: HeaderMap, Json(chang
             mcp.set_file_from_url(on);
             Ok(())
         }
+        McpChange::BuildFromSource { app: id } => app(&id).and_then(|a| mcp.build_from_source(a, &server.hosting)),
         McpChange::DeleteFile { app: id, client, path } => app(&id).and_then(|a| mcp.delete_file(a, &client, &path)),
     };
     match result {
@@ -243,7 +248,7 @@ async fn mcp_post(State(server): State<Shared>, Path(app): Path<String>, headers
     let session_id = headers.get(SESSION_HEADER).and_then(|v| v.to_str().ok()).map(str::to_string);
 
     let (session, new) = if method == "initialize" && session_id.is_none() {
-        let Some(cli) = server.hosting.cli(craft.id) else {
+        let Some(cli) = server.mcp.cli(craft.id, &server.hosting) else {
             return json_answer(StatusCode::NOT_FOUND, mcp::rpc_error(id.as_ref(), -32001, "this app's MCP server is off"));
         };
         match server.mcp.start(craft, token.clone(), &cli) {
@@ -552,6 +557,8 @@ mod tests {
             asset: "a.zip".into(),
             installed_at: 0,
             cli: None,
+            source_cli: None,
+            source_commit: None,
         };
         std::fs::write(data.path().join("apps/photocraft/installed.json"), serde_json::to_vec(&record).unwrap()).unwrap();
         (web, data)

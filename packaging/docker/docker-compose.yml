@@ -24,10 +24,27 @@ services:
       - launcher-data:/data
       # The apps' MCP work folders (emptied of old files on the schedule set in Settings).
       - launcher-work:/work
+      # Shared with the build service (cli-builder), for MCP tools built from source.
+      - launcher-builds:/builds
     # Only Caddy talks to it. To use a reverse proxy you already run instead of Caddy, remove the
     # caddy service and publish this port on loopback: ports: ["127.0.0.1:8080:8080"]
     expose:
       - "8080"
+
+  # Builds an app's MCP tool from its source code when the launcher asks (Settings shows when:
+  # apps whose release isn't compatible with MCP yet, but whose code is). It sees only the shared
+  # builds folder. Idle otherwise; a build takes 5-20 minutes, a few GB of disk and of memory.
+  # Not needed? Remove this service and the launcher-builds lines.
+  cli-builder:
+    build:
+      context: ../..
+      dockerfile: packaging/builder/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Parallel compile jobs: more is faster and takes more memory (about 1 GB each).
+      ARTCRAFT_BUILD_JOBS: ${ARTCRAFT_BUILD_JOBS:-2}
+    volumes:
+      - launcher-builds:/builds
 
   caddy:
     image: caddy:2.10-alpine
@@ -48,5 +65,6 @@ services:
 volumes:
   launcher-data:
   launcher-work:
+  launcher-builds:
   caddy-data:
   caddy-config:

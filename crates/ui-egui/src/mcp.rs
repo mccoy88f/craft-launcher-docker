@@ -4,7 +4,7 @@
 //! Nothing here shows unless the backend sent an [`McpState`] (a launcher server, to the page
 //! signed in as its administrator).
 
-use artcraft_launcher_core::hosted::{McpChange, McpFiles, McpState, PREVIOUS_FILES};
+use artcraft_launcher_core::hosted::{McpApp, McpChange, McpFiles, McpState, PREVIOUS_FILES, SourceBuild};
 use artcraft_launcher_core::protocol::Command;
 use egui::{RichText, Ui};
 
@@ -74,18 +74,7 @@ impl LauncherUi {
             let tool = tool_label(app.ready, app.unconfined);
             let state = if app.enabled && mcp.enabled { tl!("MCP on") } else { tl!("MCP off") };
             ui.label(RichText::new(format!("{browser} · {tool} · {state}")).color(t.ink_strong));
-            if app.unconfined {
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(tl!(
-                            "This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work."
-                        ))
-                        .size(12.5)
-                        .color(t.warn),
-                    )
-                    .wrap(),
-                );
-            }
+            self.mcp_compatibility(ui, &app, t);
             if entry.installed.is_some() {
                 let mut on = app.enabled;
                 if ui.checkbox(&mut on, fmt(tl!("MCP server for {name}"), &[("name", entry.app.name)])).changed() {
@@ -133,6 +122,52 @@ impl LauncherUi {
                 self.mcp_files(ui, &mcp, &app.id, inner, t);
             }
         });
+    }
+
+    /// Whether the app's release works with MCP: when it doesn't, why, and (where the app's code
+    /// does) building its tool from source.
+    fn mcp_compatibility(&mut self, ui: &mut Ui, app: &McpApp, t: &Tokens) {
+        let note = |ui: &mut Ui, text: &str, color: egui::Color32| {
+            ui.add(egui::Label::new(RichText::new(text).size(12.5).color(color)).wrap());
+        };
+        let short = |commit: &Option<String>| commit.as_deref().map(|c| c.chars().take(7).collect::<String>()).unwrap_or_default();
+        let Some(source) = &app.source else {
+            if app.unconfined {
+                ui.label(RichText::new(tl!("Not yet compatible with MCP")).color(t.warn).strong());
+                note(
+                    ui,
+                    tl!(
+                        "This version of the app can't keep its MCP tool inside its work folder, so the server doesn't run it. It will work once the app supports it."
+                    ),
+                    t.muted,
+                );
+            }
+            return;
+        };
+        if source.in_use {
+            note(ui, &fmt(tl!("MCP tool built from source ({commit})"), &[("commit", &short(&source.commit))]), t.ink_strong);
+            note(ui, tl!("When a release that's compatible comes out, the launcher uses it instead."), t.muted);
+        } else {
+            ui.label(RichText::new(tl!("Not yet compatible with MCP")).color(t.warn).strong());
+            note(ui, tl!("This release isn't compatible with MCP yet, but the app's source code is: the MCP tool can be built from it."), t.muted);
+        }
+        match source.state {
+            SourceBuild::Queued => note(ui, tl!("Waiting for the build service…"), t.ink_strong),
+            SourceBuild::Building => note(ui, tl!("Building the MCP tool from source… (5–20 minutes)"), t.ink_strong),
+            SourceBuild::Failed => note(ui, &fmt(tl!("The build failed: {why}"), &[("why", source.message.as_deref().unwrap_or(""))]), t.warn),
+            SourceBuild::Idle => {}
+        }
+        if matches!(source.state, SourceBuild::Queued | SourceBuild::Building) {
+            return;
+        }
+        if !source.builder {
+            note(ui, tl!("Building needs the build service (cli-builder) in the Docker Compose file: see the guide."), t.muted);
+            return;
+        }
+        let label = if source.in_use || source.state == SourceBuild::Failed { tl!("Build again") } else { tl!("Build the MCP tool from source") };
+        if widgets::button(ui, label, if source.in_use { Kind::Secondary } else { Kind::Primary }, 0.0).clicked() {
+            self.mcp_send(McpChange::BuildFromSource { app: app.id.clone() });
+        }
     }
 
     /// The administrator's view of an app's work folder: each client's files, to download,

@@ -430,4 +430,14 @@ filter	Installed	インストール済み
 @plural	deleted in {n} day|deleted in {n} days	{n}日後に削除
 @plural	…and {n} more file|…and {n} more files	…ほか {n} 個のファイル
 	MCP tool not usable	MCP ツールは使用できません
-	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	このリリースの MCP ツールは作業フォルダー内に制限できないため、サーバーは実行しません。アプリの新しいリリースでは動作します。
+	Not yet compatible with MCP	まだ MCP に対応していません
+	This version of the app can't keep its MCP tool inside its work folder, so the server doesn't run it. It will work once the app supports it.	このバージョンのアプリは MCP ツールを作業フォルダー内に制限できないため、サーバーは実行しません。アプリが対応すれば動作します。
+	MCP tool built from source ({commit})	ソースからビルドした MCP ツール（{commit}）
+	When a release that's compatible comes out, the launcher uses it instead.	対応したリリースが出たら、ランチャーはそちらを使います。
+	This release isn't compatible with MCP yet, but the app's source code is: the MCP tool can be built from it.	このリリースはまだ MCP に対応していませんが、アプリのソースコードは対応しています。そこから MCP ツールをビルドできます。
+	Waiting for the build service…	ビルドサービスを待っています…
+	Building the MCP tool from source… (5–20 minutes)	ソースから MCP ツールをビルド中…（5～20 分）
+	The build failed: {why}	ビルドに失敗しました: {why}
+	Building needs the build service (cli-builder) in the Docker Compose file: see the guide.	ビルドには Docker Compose ファイルにビルドサービス（cli-builder）が必要です。ガイドを参照してください。
+	Build again	再ビルド
+	Build the MCP tool from source	ソースから MCP ツールをインストール
