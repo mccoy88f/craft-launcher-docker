@@ -37,7 +37,37 @@
 > filmmakers, illustrators, designers, animators, hobbyists, and people who picked up a pencil
 > last week. If you make things, you're one of us. **[Come say hi on Discord](https://discord.gg/artcraft).**
 
+## This fork: ArtCraft Launcher on your own server
+
+> [!TIP]
+> **[mccoy88f/craft-launcher-docker](https://github.com/mccoy88f/craft-launcher-docker)** runs the
+> same launcher on a web domain with Docker, and makes the Craft Apps available to Claude and other
+> MCP clients. Everything below this section is the upstream launcher, unchanged.
+
+- **The same interface, in the browser.** `artcraft-launcher-server` (Rust, axum) serves the
+  launcher's own egui interface compiled to WebAssembly, plus each app's browser build at
+  `/apps/<app>/`. The apps run on the visitor's device: no remote desktop, nothing streamed.
+  **Open** starts an app in a window of its own, and the launcher installs as a PWA.
+- **One administrator, everyone else just uses the apps.** Installing, updating and removing apps
+  takes the administrator's sign-in (a password from an environment variable); visitors see the
+  same page and open what's installed.
+- **The apps as MCP servers.** Each app's command-line tool is offered at `/mcp/<app>` over MCP's
+  Streamable HTTP transport, for Claude Code (access tokens) and claude.ai, Claude Desktop and
+  Claude's mobile apps (OAuth 2.1 with PKCE). Each client gets its own work folder, the tool's only
+  read and write root; files expire after the days you choose, and the AI is told which ones expire
+  soon. The administrator downloads, uploads and deletes each client's files from the launcher.
+- **Safe by default.** Tools are taken only from the apps' own `storytold/` releases (checksums
+  verified) and run only if they confine themselves to the client's folder. For apps whose release
+  can't yet but whose code can (DeckCraft, DesignCraft today), a separate build service compiles the
+  tool from source, and the launcher goes back to the release as soon as one is compatible.
+- **Italian**, the twelfth interface language (also offered upstream), and every new screen in all
+  of them.
+- **Deploys on Coolify** (Traefik handles HTTPS) or with the bundled Caddy compose file.
+
+**[Set it up: packaging/docker/README.md](packaging/docker/README.md)**
+
 <p align="center">
+  <a href="#this-fork-artcraft-launcher-on-your-own-server">On your own server</a> ·
   <a href="#what-it-does">What it does</a> ·
   <a href="#features">Features</a> ·
   <a href="#downloads">Downloads</a> ·
