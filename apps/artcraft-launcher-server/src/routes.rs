@@ -36,6 +36,11 @@ pub fn router(server: Shared) -> Router {
         .route("/api/releases", get(public_releases))
         // Relative, so it still works when a proxy serves everything under a prefix.
         .route("/admin", get(|| async { Redirect::permanent("admin/") }))
+        // The app manifest and its icons, for the administrator's page too: browsers fetch them
+        // without the sign-in, so behind it the page couldn't be installed as an app (PWA).
+        .route("/admin/manifest.webmanifest", get(admin_page))
+        .route("/admin/256x256/{*path}", get(admin_page))
+        .route("/admin/512x512/{*path}", get(admin_page))
         .route("/apps/{app}", get(app_redirect))
         .route("/apps/{app}/", get(app_file))
         .route("/apps/{app}/{*path}", get(app_file))
@@ -216,6 +221,9 @@ mod tests {
         let web = tempfile::tempdir().unwrap();
         std::fs::write(web.path().join("index.html"), "launcher").unwrap();
         std::fs::write(web.path().join("artcraft-launcher-web-abc.wasm"), "\0asm").unwrap();
+        std::fs::write(web.path().join("manifest.webmanifest"), "{}").unwrap();
+        std::fs::create_dir_all(web.path().join("256x256/apps")).unwrap();
+        std::fs::write(web.path().join("256x256/apps/icon.png"), "png").unwrap();
         let data = tempfile::tempdir().unwrap();
         let site = data.path().join("apps/photocraft/0.8.2-1");
         std::fs::create_dir_all(site.join("app")).unwrap();
@@ -266,6 +274,10 @@ mod tests {
         assert_eq!(send(&router, "GET", "/admin/", &[auth("admin:wrong password")]).await.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(text(send(&router, "GET", "/admin/", &[auth("admin:long enough")]).await).await, "launcher");
         assert_eq!(send(&router, "GET", "/admin", &[]).await.headers()[header::LOCATION], "admin/");
+        // Browsers fetch the app manifest and its icons without the sign-in.
+        assert_eq!(text(send(&router, "GET", "/admin/manifest.webmanifest", &[]).await).await, "{}");
+        assert_eq!(send(&router, "GET", "/admin/256x256/apps/icon.png", &[]).await.status(), StatusCode::OK);
+        assert_eq!(send(&router, "GET", "/admin/api/state", &[]).await.status(), StatusCode::UNAUTHORIZED);
 
         let state = text(send(&router, "GET", "/admin/api/state", &[auth("admin:long enough")]).await).await;
         let state: artcraft_launcher_core::hosted::ServerState = serde_json::from_str(&state).unwrap();
