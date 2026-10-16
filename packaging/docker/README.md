@@ -115,16 +115,22 @@ client's folder (up to 512 MB each), for instance a photo for the AI to work on.
 |---|---|---|
 | Delete files not changed for | 7 days | Once a day, files not changed for that long are deleted (Never: kept). |
 | Space per client | 2 GB | Past it, the client's tool calls are refused with a message saying so, until files are deleted or the limit raised. |
-| Sessions at once | 4 | MCP sessions running at the same time, across apps. A session nobody uses for 30 minutes ends. |
+| Sessions at once | 4 | MCP sessions running at the same time, across apps. A session nobody uses for 30 minutes ends; when all are taken, a new one closes the one left alone longest (clients like claude.ai often start a new session without ending the last). |
 | Empty | | Deletes everything in that app's folder, every client's (ending its sessions). |
 
 **Revoke** (asked twice) ends a token's sessions and deletes its folders.
 Uninstalling an app deletes its work folder too (the uninstall prompt says so).
 
 The command-line tool runs inside the launcher's container, as its unprivileged user, with a
-clean environment. The MCP server checks the token on every request, refuses requests from web
-pages on other sites (their `Origin`), and never runs anything but the tools of the Craft Apps
+clean environment. The MCP server checks the token on every request (sent in the `Authorization`
+header, never as a cookie, so a page on another site can't use it), and never runs anything but the tools of the Craft Apps
 it installed from their `storytold/` releases.
+
+## When a client can't connect
+
+The server logs why it refused an MCP or OAuth request (Coolify: the service's **Logs**): an unknown
+or expired token, a token that may not use that app, an app whose MCP server is off or whose tool
+isn't installed, a session that couldn't start, or a refused OAuth token request.
 
 ## Settings
 

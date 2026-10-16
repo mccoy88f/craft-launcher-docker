@@ -335,9 +335,11 @@ async fn token(State(server): State<Shared>, headers: HeaderMap, Form(t): Form<T
         None => (t.client_id.clone(), t.client_secret.clone()),
     };
     let Ok(client) = find_client(&server, &client_id).await else {
+        log::warn!("OAuth token request from an unknown client");
         return oauth_error(StatusCode::UNAUTHORIZED, "invalid_client", "unknown client");
     };
     if !server.mcp.client_authenticates(&client, secret.as_deref()) {
+        log::warn!("OAuth token request from {} with a wrong client secret", client.name);
         return oauth_error(StatusCode::UNAUTHORIZED, "invalid_client", "wrong client secret");
     }
     let result = match t.grant_type.as_str() {
@@ -346,8 +348,14 @@ async fn token(State(server): State<Shared>, headers: HeaderMap, Form(t): Form<T
         _ => return oauth_error(StatusCode::BAD_REQUEST, "unsupported_grant_type", "authorization_code or refresh_token"),
     };
     match result {
-        Ok(tokens) => no_store(Json(tokens).into_response()),
-        Err(error) => oauth_error(StatusCode::BAD_REQUEST, error, "the grant isn't valid (anymore)"),
+        Ok(tokens) => {
+            log::info!("OAuth: {} got tokens ({})", client.name, t.grant_type);
+            no_store(Json(tokens).into_response())
+        }
+        Err(error) => {
+            log::warn!("OAuth token request from {} refused: {error} ({})", client.name, t.grant_type);
+            oauth_error(StatusCode::BAD_REQUEST, error, "the grant isn't valid (anymore)")
+        }
     }
 }
 

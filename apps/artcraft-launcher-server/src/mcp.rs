@@ -836,8 +836,26 @@ impl Mcp {
     /// Starts the app's tool for a new session.
     pub fn start(self: &Arc<Self>, app: &'static CraftApp, token: String, cli: &Path) -> Result<Arc<Session>, String> {
         let max = usize::try_from(self.settings().max_sessions).unwrap_or(usize::MAX);
-        if self.sessions.lock().unwrap_or_else(PoisonError::into_inner).len() >= max {
-            return Err(format!("{max} MCP sessions are running already; try again later"));
+        {
+            // Clients (claude.ai among them) often start a new session without ending the last
+            // one: when full, the session left alone longest makes room, unless every session is
+            // waiting for an answer right now.
+            let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+            while sessions.len() >= max {
+                let idle = sessions
+                    .values()
+                    .filter(|s| s.pending.lock().unwrap_or_else(PoisonError::into_inner).is_empty())
+                    .max_by_key(|s| s.idle())
+                    .map(|s| s.id.clone());
+                let Some(id) = idle else {
+                    log::warn!("{}: refused a new MCP session: {max} sessions are busy", app.name);
+                    return Err(format!("{max} MCP sessions are busy already; try again in a moment"));
+                };
+                if let Some(old) = sessions.remove(&id) {
+                    log::info!("{}: closed an idle MCP session of {} to make room", app.name, old.app);
+                    old.close();
+                }
+            }
         }
         let dir = self.client_dir(app.id, &token).ok_or("no work folder for this token")?;
         std::fs::create_dir_all(&dir).map_err(|e| format!("couldn't create {} ({e})", dir.display()))?;
@@ -1469,6 +1487,32 @@ mod tests {
         assert!(public_address("https://[::1]:8443/a").is_err());
         assert!(public_address("https://user@1.1.1.1/a").is_err());
         assert!(public_address("https://1.1.1.1:443/a.png").is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_full_server_closes_its_idlest_session_for_a_new_one() {
+        use std::os::unix::fs::PermissionsExt;
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let (dir, mcp) = mcp();
+            let mcp = Arc::new(mcp);
+            // A stand-in tool that just stays up.
+            let cli = dir.path().join("fake-cli");
+            std::fs::write(&cli, "#!/bin/sh\nexec sleep 30\n").unwrap();
+            std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+            mcp.set_max_sessions(2).unwrap();
+            let app = CraftApp::by_id("deckcraft").unwrap();
+            let first = mcp.start(app, "tok1".into(), &cli).unwrap();
+            let second = mcp.start(app, "tok1".into(), &cli).unwrap();
+            *first.last_used.lock().unwrap() = Instant::now() - Duration::from_secs(60);
+            let third = mcp.start(app, "tok2".into(), &cli).unwrap();
+            let open: Vec<String> = mcp.sessions.lock().unwrap().keys().cloned().collect();
+            assert_eq!(open.len(), 2);
+            assert!(!open.contains(&first.id) && open.contains(&second.id) && open.contains(&third.id));
+            assert!(first.closed.load(Ordering::SeqCst));
+            mcp.close_where(|_| true);
+        });
     }
 
     #[test]

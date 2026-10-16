@@ -190,18 +190,21 @@ fn json_answer(status: StatusCode, body: String) -> Response {
 
 /// Signs an MCP request in: the app, and the id of the token used.
 fn mcp_sign_in(server: &Server, app: &str, headers: &HeaderMap) -> Result<(&'static CraftApp, String), Box<Response>> {
-    // Browsers send Origin; a page on another site must not reach the MCP server (DNS rebinding).
-    if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
-        let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("");
-        if origin.split_once("://").map(|(_, h)| h) != Some(host) {
-            return Err(Box::new(json_answer(StatusCode::FORBIDDEN, mcp::rpc_error(None, -32600, "requests from other sites aren't allowed"))));
-        }
-    }
+    // No check of `Origin`: every request needs its access token in the Authorization header,
+    // which a page on another site (or a DNS-rebinding one) never has; clients such as claude.ai
+    // send their own Origin.
     let Some(craft) = CraftApp::by_id(app) else {
         return Err(Box::new(json_answer(StatusCode::NOT_FOUND, mcp::rpc_error(None, -32600, "no such app"))));
     };
     let authorization = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
-    match server.mcp.authorize(authorization, craft.id, &server.hosting) {
+    let result = server.mcp.authorize(authorization, craft.id, &server.hosting);
+    match &result {
+        Err(Refusal::SignIn) if authorization.is_some() => log::info!("{}: MCP request with an unknown or expired token", craft.name),
+        Err(Refusal::Forbidden) => log::warn!("{}: MCP request with a token that may not use it", craft.name),
+        Err(Refusal::Off) => log::warn!("{}: MCP request while its MCP server is off (or its tool isn't installed)", craft.name),
+        _ => {}
+    }
+    match result {
         Ok(token) => Ok((craft, token)),
         Err(Refusal::SignIn) => Err(Box::new(
             (
@@ -245,7 +248,10 @@ async fn mcp_post(State(server): State<Shared>, Path(app): Path<String>, headers
         };
         match server.mcp.start(craft, token.clone(), &cli) {
             Ok(s) => (s, true),
-            Err(e) => return json_answer(StatusCode::SERVICE_UNAVAILABLE, mcp::rpc_error(id.as_ref(), -32000, &e)),
+            Err(e) => {
+                log::warn!("{}: couldn't start an MCP session ({e})", craft.name);
+                return json_answer(StatusCode::SERVICE_UNAVAILABLE, mcp::rpc_error(id.as_ref(), -32000, &e));
+            }
         }
     } else {
         let Some(sid) = session_id else {
@@ -254,7 +260,10 @@ async fn mcp_post(State(server): State<Shared>, Path(app): Path<String>, headers
         match server.mcp.session(&sid, craft.id, &token) {
             Some(s) => (s, false),
             // MCP clients start a new session when they get 404.
-            None => return json_answer(StatusCode::NOT_FOUND, mcp::rpc_error(id.as_ref(), -32001, "no such session: initialize again")),
+            None => {
+                log::info!("{}: MCP request for a session that has ended; the client starts a new one", craft.name);
+                return json_answer(StatusCode::NOT_FOUND, mcp::rpc_error(id.as_ref(), -32001, "no such session: initialize again"));
+            }
         }
     };
 
@@ -314,6 +323,7 @@ async fn mcp_post(State(server): State<Shared>, Path(app): Path<String>, headers
                 json_answer(StatusCode::OK, line)
             }
             None => {
+                log::warn!("{}: the app's MCP server didn't answer {method}", craft.name);
                 if new {
                     server.mcp.end_session(&session.id);
                 }
@@ -331,6 +341,7 @@ async fn mcp_post(State(server): State<Shared>, Path(app): Path<String>, headers
         match mcp::answer(rx, &id).await {
             Some(line) => json_answer(StatusCode::OK, line),
             None => {
+                log::warn!("{}: the app's MCP server didn't answer {method}", craft.name);
                 if new {
                     server.mcp.end_session(&session.id);
                 }

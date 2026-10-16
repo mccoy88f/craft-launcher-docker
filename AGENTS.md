@@ -81,8 +81,8 @@ settings file must produce an error the user can act on, never a panic. Shared s
   links are random and expire after an hour; `launcher_file_from_url` is off unless the
   administrator turns it on, fetches only https addresses whose every IP is public (each redirect
   checked) and respects the quota. Clients sign in
-  with access tokens stored as SHA-256 fingerprints and shown once; requests with a foreign
-  `Origin` are refused. Never widen what it runs or the roots it grants. OAuth (`oauth.rs`) only
+  with access tokens stored as SHA-256 fingerprints and shown once, only ever in the
+  `Authorization` header (never a cookie: that is why a foreign `Origin` needn't be refused). Never widen what it runs or the roots it grants. OAuth (`oauth.rs`) only
   issues those same tokens after the administrator signs in and allows the client: PKCE S256
   always, exact redirect URIs (https, or http on loopback), single-use codes, rotated refresh
   tokens. Its page's strings live in the launcher's catalogs (`crates/ui-egui/src/i18n`).
