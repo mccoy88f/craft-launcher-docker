@@ -134,11 +134,12 @@ isn't installed, a session that couldn't start, or a refused OAuth token request
 The first lines each app's tool writes about itself are in the log too (`<app> mcp: …`).
 
 The server tries each app's command-line tool once, confined to a work folder
-(`--automation-read-root` and `--automation-write-root`). One that refuses the options shows **MCP
-tool not usable** and isn't run, since it could reach every file the server can; the log says what
-it answered. Its next release that takes the options works as soon as the app is updated. As of
-October 2026, PhotoCraft, VectorCraft, EffectCraft, WordCraft and SoundCraft take them; FilmCraft,
-LightCraft, PdfCraft, DesignCraft, DeckCraft, GridCraft, CadCraft and FigCraft don't yet.
+(`--automation-read-root` and `--automation-write-root`; for PdfCraft, its own `--root`, which
+confines every read and write too). One that refuses shows **MCP tool not usable** and isn't run,
+since it could reach every file the server can; the log says what it answered. Its next release
+that takes the options works as soon as the app is updated. As of October 2026, PhotoCraft,
+VectorCraft, EffectCraft, WordCraft, SoundCraft and PdfCraft work; FilmCraft, LightCraft,
+DesignCraft, DeckCraft, GridCraft, CadCraft and FigCraft don't yet.
 
 ## Settings
 

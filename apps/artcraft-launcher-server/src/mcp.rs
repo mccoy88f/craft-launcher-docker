@@ -254,8 +254,8 @@ pub struct Mcp {
     settings: Mutex<Settings>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     sizes: Mutex<HashMap<PathBuf, (u64, Instant)>>,
-    /// Whether each command-line tool takes `--automation-read-root` (asked once per file).
-    confinable: Mutex<HashMap<PathBuf, bool>>,
+    /// How each command-line tool confines itself to a folder, if it can (tried once per file).
+    confinable: Mutex<HashMap<PathBuf, Option<Confine>>>,
     /// Download links handed to clients: the file, and until when.
     links: Mutex<HashMap<String, (PathBuf, Instant)>>,
     dirty: AtomicBool,
@@ -433,7 +433,7 @@ impl Mcp {
                     work_dir: self.work_dir(a.id).display().to_string(),
                     used_bytes: self.used_at(&self.work_dir(a.id)),
                     sessions: u32::try_from(sessions.iter().filter(|x| **x == a.id).count()).unwrap_or(u32::MAX),
-                    unconfined: hosting.cli(a.id).is_some_and(|cli| !self.confinable(&cli)),
+                    unconfined: hosting.cli(a.id).is_some_and(|cli| self.confinable(a.id, &cli).is_none()),
                 })
                 .collect(),
             tokens: s
@@ -454,22 +454,36 @@ impl Mcp {
         }
     }
 
-    /// Whether a command-line tool can be confined to a work folder: started with
-    /// `--automation-read-root` and `--automation-write-root`, it answers `initialize` (releases
-    /// from before the options reject them and exit). Tried once per tool; one that can't be
-    /// confined is never run, since it could reach every file the server can.
-    pub fn confinable(&self, cli: &Path) -> bool {
+    /// How a command-line tool confines itself to a work folder: started that way, it answers
+    /// `initialize` (releases from before an option reject it and exit). The Craft Apps' options
+    /// (`--automation-read-root` and `--automation-write-root`) first, then the app's own where it
+    /// has one ([`OWN_ROOT`]). Tried once per tool; one that can't be confined is never run, since
+    /// it could reach every file the server can.
+    pub fn confinable(&self, app: &str, cli: &Path) -> Option<Confine> {
         if let Some(known) = self.confinable.lock().unwrap_or_else(PoisonError::into_inner).get(cli) {
             return *known;
         }
-        let root = self.work_root.join(format!(".probe-{}", random_text(6).unwrap_or_default()));
-        let result = answers_confined(cli, &root);
-        if let Err(why) = &result {
+        let mut ways = vec![Confine::Automation];
+        if OWN_ROOT.contains(&app) {
+            ways.push(Confine::Root);
+        }
+        let mut found = None;
+        let mut why = String::new();
+        for way in ways {
+            let root = self.work_root.join(format!(".probe-{}", random_text(6).unwrap_or_default()));
+            match answers_confined(cli, way, &root) {
+                Ok(()) => {
+                    found = Some(way);
+                    break;
+                }
+                Err(e) => why = e,
+            }
+        }
+        if found.is_none() {
             log::warn!("{} can't be confined to a work folder, so it won't be run: {why}", cli.display());
         }
-        let answer = result.is_ok();
-        self.confinable.lock().unwrap_or_else(PoisonError::into_inner).insert(cli.to_path_buf(), answer);
-        answer
+        self.confinable.lock().unwrap_or_else(PoisonError::into_inner).insert(cli.to_path_buf(), found);
+        found
     }
 
     /// Bytes in a folder, measured at most every half minute.
@@ -891,21 +905,18 @@ impl Mcp {
                 }
             }
         }
-        if !self.confinable(cli) {
+        let Some(confine) = self.confinable(app.id, cli) else {
             return Err(format!(
                 "this release of {}'s command-line tool can't be confined to a work folder (it has no --automation-read-root), \
                  so the launcher doesn't run it; a newer release of {} will work",
                 app.name, app.name
             ));
-        }
+        };
         let dir = self.client_dir(app.id, &token).ok_or("no work folder for this token")?;
         std::fs::create_dir_all(&dir).map_err(|e| format!("couldn't create {} ({e})", dir.display()))?;
         let mut child = tokio::process::Command::new(cli)
             .arg("mcp")
-            .arg("--automation-read-root")
-            .arg(&dir)
-            .arg("--automation-write-root")
-            .arg(&dir)
+            .args(confine.args(&dir))
             .current_dir(&dir)
             .env_clear()
             .env("HOME", &dir)
@@ -1230,19 +1241,39 @@ fn random_text(n: usize) -> Result<String, String> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
+/// How a command-line tool is told to keep to one folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Confine {
+    /// `--automation-read-root DIR --automation-write-root DIR`, the Craft Apps' options.
+    Automation,
+    /// `--root DIR`: PdfCraft's own, which confines every read and write (PdfCraft 0.8.0 has it
+    /// and not the others).
+    Root,
+}
+
+/// Apps whose `mcp --root DIR` confines every read and write, for releases without the Craft
+/// Apps' options. Only apps whose documentation says so: elsewhere `--root` could mean anything.
+const OWN_ROOT: [&str; 1] = ["pdfcraft"];
+
+impl Confine {
+    fn args(self, dir: &Path) -> Vec<std::ffi::OsString> {
+        match self {
+            Confine::Automation => vec!["--automation-read-root".into(), dir.into(), "--automation-write-root".into(), dir.into()],
+            Confine::Root => vec!["--root".into(), dir.into()],
+        }
+    }
+}
+
 /// Starts `cli mcp` confined to `root`, as sessions start it, and asks it to initialize: `Ok`
 /// when it answers, else why not (what it wrote on stderr). Releases from before
 /// `--automation-read-root` reject the option and exit; their `--help` can't tell, since some
 /// apps that take it don't answer `--help`.
-fn answers_confined(cli: &Path, root: &Path) -> Result<(), String> {
+fn answers_confined(cli: &Path, confine: Confine, root: &Path) -> Result<(), String> {
     use std::io::{BufRead, Write};
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let mut child = std::process::Command::new(cli)
         .arg("mcp")
-        .arg("--automation-read-root")
-        .arg(root)
-        .arg("--automation-write-root")
-        .arg(root)
+        .args(confine.args(root))
         .current_dir(root)
         .env_clear()
         .env("HOME", root)
@@ -1631,11 +1662,26 @@ mod tests {
             let cli = dir.path().join("old-cli");
             std::fs::write(&cli, "#!/bin/sh\necho 'unknown mcp option `--automation-read-root`' >&2\nexit 1\n").unwrap();
             std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
-            assert!(!mcp.confinable(&cli));
+            assert_eq!(mcp.confinable("deckcraft", &cli), None);
             let refused = mcp.start(CraftApp::by_id("deckcraft").unwrap(), "tok".into(), &cli).err().unwrap();
             assert!(refused.contains("can't be confined"), "{refused}");
             assert!(mcp.sessions.lock().unwrap().is_empty());
         });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pdfcraft_may_use_its_own_root_option() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, mcp) = mcp();
+        // Like PdfCraft 0.8.0: `--root DIR` works, the automation options don't.
+        let cli = dir.path().join("root-only-cli");
+        std::fs::write(&cli, "#!/bin/sh\n[ \"$2\" = --root ] || exit 1\nread line\necho '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}'\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(mcp.confinable("pdfcraft", &cli), Some(Confine::Root));
+        let other = dir.path().join("root-only-cli-2");
+        std::fs::copy(&cli, &other).unwrap();
+        assert_eq!(mcp.confinable("deckcraft", &other), None, "--root is trusted only where it's documented");
     }
 
     /// `ARTCRAFT_PROBE_CLIS=a:b:c cargo test probe_real -- --ignored --nocapture`: tries the
@@ -1645,7 +1691,9 @@ mod tests {
     fn probe_real_tools() {
         let dir = tempfile::tempdir().unwrap();
         for cli in std::env::var("ARTCRAFT_PROBE_CLIS").unwrap_or_default().split(':').filter(|c| !c.is_empty()) {
-            println!("{cli}: {:?}", answers_confined(Path::new(cli), &dir.path().join("root")));
+            for way in [Confine::Automation, Confine::Root] {
+                println!("{cli} {way:?}: {:?}", answers_confined(Path::new(cli), way, &dir.path().join("root")));
+            }
         }
     }
 
