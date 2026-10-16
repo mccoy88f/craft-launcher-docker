@@ -59,8 +59,11 @@ impl LauncherUi {
             return;
         }
         let address = format!("{}{}", mcp.base_url, app.id);
+        // The frame adds its 14 px margins and 1 px line on each side: the inside is what's left.
+        let inner = (width - 30.0).max(120.0);
         egui::Frame::new().stroke(t.hairline()).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
-            ui.set_width(width - 30.0);
+            ui.set_width(inner);
+            ui.set_max_width(inner);
             ui.spacing_mut().item_spacing.y = 8.0;
             ui.label(RichText::new(fmt(tl!("Control {name} from Claude or other MCP clients"), &[("name", entry.app.name)])).color(t.muted));
             // Where things stand: the browser version, its MCP tool, and whether MCP is on.
@@ -83,8 +86,15 @@ impl LauncherUi {
                 ui.label(RichText::new(tl!("Its command-line tool isn't installed yet.")).size(12.5).color(t.warn));
             }
             widgets::hud(ui, tl!("Address"), t.faint);
+            // The address gets what the Copy button leaves, cut short with "…" (the button copies it
+            // whole), so a long domain never pushes the button out of the box.
+            let copy_w = widgets::button_width(ui, tl!("Copy"), 0.0);
+            let gap = ui.spacing().item_spacing.x;
             ui.horizontal(|ui| {
-                ui.add(egui::Label::new(RichText::new(&address).monospace().color(t.ink_strong)).truncate());
+                let label_w = (inner - copy_w - gap).max(40.0);
+                ui.allocate_ui_with_layout(egui::vec2(label_w, crate::theme::CONTROL_H), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(egui::Label::new(RichText::new(&address).monospace().color(t.ink_strong)).truncate()).on_hover_text(address.as_str());
+                });
                 if widgets::button(ui, tl!("Copy"), Kind::Secondary, 0.0).clicked() {
                     self.copy(ui, address.clone());
                 }
