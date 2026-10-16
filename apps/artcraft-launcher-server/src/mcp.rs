@@ -150,7 +150,8 @@ struct Settings {
     last_cleanup: i64,
     #[serde(default)]
     file_from_url: bool,
-    /// 1 once the files from before per-client folders were moved to [`PREVIOUS_FILES`].
+    /// 1 once the files from before per-client folders were moved to [`PREVIOUS_FILES`]; 2 once
+    /// sessions at once left at the old default (4) were raised to the new one.
     #[serde(default)]
     layout: u32,
 }
@@ -162,7 +163,7 @@ fn default_quota() -> u64 {
     2 << 30
 }
 fn default_sessions() -> u32 {
-    4
+    10
 }
 
 impl Default for Settings {
@@ -177,7 +178,7 @@ impl Default for Settings {
             clients: Vec::new(),
             last_cleanup: 0,
             file_from_url: false,
-            layout: 1,
+            layout: 2,
         }
     }
 }
@@ -283,6 +284,17 @@ impl Mcp {
         if this.settings().layout < 1 {
             this.move_to_previous();
             this.settings().layout = 1;
+            this.save();
+        }
+        if this.settings().layout < 2 {
+            let mut s = this.settings();
+            // 4 was the default: clients like claude.ai open several sessions, so it ran out.
+            // A number the administrator chose stays.
+            if s.max_sessions == 4 {
+                s.max_sessions = default_sessions();
+            }
+            s.layout = 2;
+            drop(s);
             this.save();
         }
         Ok(this)
@@ -1423,8 +1435,9 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("work/photocraft/out")).unwrap();
         std::fs::write(dir.path().join("work/photocraft/cover.png"), b"png").unwrap();
         std::fs::write(dir.path().join("work/photocraft/out/a.pcraft"), b"pc").unwrap();
-        std::fs::write(dir.path().join("mcp.json"), br#"{"enabled": true}"#).unwrap();
+        std::fs::write(dir.path().join("mcp.json"), br#"{"enabled": true, "max_sessions": 4}"#).unwrap();
         let mcp = Mcp::open(dir.path(), dir.path().join("work")).unwrap();
+        assert_eq!(mcp.settings().max_sessions, 10, "the old default is raised");
         assert!(dir.path().join("work/photocraft/previous/cover.png").is_file());
         assert!(dir.path().join("work/photocraft/previous/out/a.pcraft").is_file());
         assert!(!dir.path().join("work/photocraft/cover.png").exists());
@@ -1502,6 +1515,7 @@ mod tests {
             std::fs::write(&cli, "#!/bin/sh\nexec sleep 30\n").unwrap();
             std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
             mcp.set_max_sessions(2).unwrap();
+            assert_eq!(Mcp::open(dir.path(), dir.path().join("work")).unwrap().settings().max_sessions, 2, "a chosen number stays");
             let app = CraftApp::by_id("deckcraft").unwrap();
             let first = mcp.start(app, "tok1".into(), &cli).unwrap();
             let second = mcp.start(app, "tok1".into(), &cli).unwrap();

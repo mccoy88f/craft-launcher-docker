@@ -115,7 +115,7 @@ client's folder (up to 512 MB each), for instance a photo for the AI to work on.
 |---|---|---|
 | Delete files not changed for | 7 days | Once a day, files not changed for that long are deleted (Never: kept). |
 | Space per client | 2 GB | Past it, the client's tool calls are refused with a message saying so, until files are deleted or the limit raised. |
-| Sessions at once | 4 | MCP sessions running at the same time, across apps. A session nobody uses for 30 minutes ends; when all are taken, a new one closes the one left alone longest (clients like claude.ai often start a new session without ending the last). |
+| Sessions at once | 10 | MCP sessions running at the same time, across apps. A session nobody uses for 30 minutes ends; when all are taken, a new one closes the one left alone longest (clients like claude.ai often start a new session without ending the last). |
 | Empty | | Deletes everything in that app's folder, every client's (ending its sessions). |
 
 **Revoke** (asked twice) ends a token's sessions and deletes its folders.

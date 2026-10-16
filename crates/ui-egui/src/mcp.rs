@@ -18,7 +18,7 @@ use crate::widgets::{self, Kind};
 const RETENTION_DAYS: [u32; 7] = [0, 1, 3, 7, 14, 30, 90];
 /// The choices for the space each client's work folder may use.
 const QUOTAS: [u64; 7] = [512 << 20, 1 << 30, 2 << 30, 5 << 30, 10 << 30, 20 << 30, 50 << 30];
-const SESSIONS: [u32; 5] = [1, 2, 4, 8, 16];
+const SESSIONS: [u32; 6] = [1, 2, 4, 8, 10, 16];
 
 /// What the new-token dialog is filling in.
 #[derive(Clone, Debug, Default)]
