@@ -76,7 +76,10 @@ settings file must produce an error the user can act on, never a panic. Shared s
   the app's own Linux tarball (same release as the installed version, checksum-verified), with
   the app's work folder as its only read and write root and a clean environment. Clients sign in
   with access tokens stored as SHA-256 fingerprints and shown once; requests with a foreign
-  `Origin` are refused. Never widen what it runs or the roots it grants.
+  `Origin` are refused. Never widen what it runs or the roots it grants. OAuth (`oauth.rs`) only
+  issues those same tokens after the administrator signs in and allows the client: PKCE S256
+  always, exact redirect URIs (https, or http on loopback), single-use codes, rotated refresh
+  tokens. Its page's strings live in the launcher's catalogs (`crates/ui-egui/src/i18n`).
 - The details drawer's pictures are the one other download: JPEGs only, from a pinned tag of
   `https://raw.githubusercontent.com/storytold/craft-launcher-assets/` (`core::details`),
   capped at 2 MB each, cached, and never run. Pictures are not bundled in this repo.

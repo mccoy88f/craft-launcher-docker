@@ -387,3 +387,16 @@ filter	Installed	Telepítve
 	Its MCP work folder on the server is deleted too.	A szerveren lévő MCP-munkamappája is törlődik.
 @plural	{n} day|{n} days	{n} nap|{n} nap
 @msg	{name}: MCP server ready	{name}: az MCP-szerver kész
+
+# The launcher server's OAuth page, where the administrator lets an MCP client in.
+	Connect {client} to ArtCraft Launcher	{client} csatlakoztatása az ArtCraft Launcherhez
+	{client} asks to use the Craft Apps on this server over MCP: to open, edit and save files in their work folders.	{client} MCP-n keresztül szeretné használni a szerveren lévő Craft alkalmazásokat: fájlok megnyitására, szerkesztésére és mentésére a munkamappáikban.
+	After you allow it, you go back to {host}.	Ha engedélyezed, visszatérsz ide: {host}.
+	Apps it may use	Használható alkalmazások
+	Administrator	Rendszergazda
+	Password	Jelszó
+	Allow	Engedélyezés
+	Deny	Elutasítás
+	Wrong name or password.	Hibás név vagy jelszó.
+	The MCP server is off: turn it on in the launcher's settings first.	Az MCP-szerver ki van kapcsolva: előbb kapcsold be a launcher beállításaiban.
+	This request isn't valid: {why}	Ez a kérés érvénytelen: {why}

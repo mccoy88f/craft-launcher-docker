@@ -200,7 +200,9 @@ impl LauncherUi {
                             Some(at) => fmt(tl!("Used {ago}"), &[("ago", &crate::views::ago_text(at, now))]),
                             None => tl!("Not used yet").to_string(),
                         };
-                        ui.label(RichText::new(format!("…{} · {apps} · {used}", token.hint)).size(12.0).color(t.muted));
+                        // "OAuth": a client that signed in (claude.ai, Claude's apps); a name in every language.
+                        let how = if token.oauth { " · OAuth" } else { "" };
+                        ui.label(RichText::new(format!("…{} · {apps} · {used}{how}", token.hint)).size(12.0).color(t.muted));
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if widgets::button(ui, tl!("Revoke"), Kind::Danger, 0.0).clicked() {

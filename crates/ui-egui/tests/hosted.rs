@@ -109,6 +109,7 @@ fn mcp_event() -> Event {
             apps: None,
             created_at: NOW - 3600,
             last_used: Some(NOW - 300),
+            oauth: false,
         }],
     })
 }

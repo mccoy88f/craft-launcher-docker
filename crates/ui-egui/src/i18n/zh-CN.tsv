@@ -354,3 +354,16 @@ figcraft	Interface design and prototyping	界面设计与原型制作
 	Its MCP work folder on the server is deleted too.	它在服务器上的 MCP 工作文件夹也会被删除。
 @plural	{n} day|{n} days	{n} 天
 @msg	{name}: MCP server ready	{name}：MCP 服务器已就绪
+
+# The launcher server's OAuth page, where the administrator lets an MCP client in.
+	Connect {client} to ArtCraft Launcher	将 {client} 连接到 ArtCraft Launcher
+	{client} asks to use the Craft Apps on this server over MCP: to open, edit and save files in their work folders.	{client} 请求通过 MCP 使用此服务器上的 Craft 应用：在其工作文件夹中打开、编辑和保存文件。
+	After you allow it, you go back to {host}.	允许后，你将返回 {host}。
+	Apps it may use	可使用的应用
+	Administrator	管理员
+	Password	密码
+	Allow	允许
+	Deny	拒绝
+	Wrong name or password.	名称或密码错误。
+	The MCP server is off: turn it on in the launcher's settings first.	MCP 服务器已关闭：请先在启动器的设置中打开它。
+	This request isn't valid: {why}	此请求无效：{why}

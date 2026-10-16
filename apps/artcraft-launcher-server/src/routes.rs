@@ -48,6 +48,7 @@ pub fn router(server: Shared) -> Router {
         .route("/apps/{app}/", get(app_file))
         .route("/apps/{app}/{*path}", get(app_file))
         .merge(admin)
+        .merge(crate::oauth::routes())
         .fallback(launcher_page)
         .with_state(server)
 }
@@ -208,7 +209,14 @@ fn mcp_sign_in(server: &Server, app: &str, headers: &HeaderMap) -> Result<(&'sta
         Err(Refusal::SignIn) => Err(Box::new(
             (
                 StatusCode::UNAUTHORIZED,
-                [(header::WWW_AUTHENTICATE, "Bearer realm=\"ArtCraft Launcher MCP\"")],
+                // Where an OAuth client finds out how to sign in (MCP authorization, RFC 9728).
+                [(
+                    header::WWW_AUTHENTICATE,
+                    format!(
+                        "Bearer realm=\"ArtCraft Launcher MCP\", resource_metadata=\"{}\"",
+                        crate::oauth::resource_metadata_url(headers, craft.id)
+                    ),
+                )],
                 mcp::rpc_error(None, -32001, "a valid access token is needed (Authorization: Bearer …)"),
             )
                 .into_response(),
@@ -387,6 +395,7 @@ mod tests {
         Arc::new(Server {
             hosting: Arc::new(hosting::Hosting::open(data, http.clone()).unwrap()),
             mcp: Arc::new(crate::mcp::Mcp::open(data, data.join("work")).unwrap()),
+            http: http.clone(),
             releases: releases::Releases::new(http, data, Duration::from_secs(1800)),
             web_dir: web.to_path_buf(),
             admin: password.map(|p| auth::Admin::new("admin".into(), p.into()).unwrap()),

@@ -51,7 +51,69 @@ struct StoredToken {
     apps: Option<Vec<String>>,
     created_at: i64,
     last_used: Option<i64>,
+    /// Set for a token an OAuth client got (claude.ai, Claude's apps): it expires and is renewed.
+    #[serde(default)]
+    grant: Option<Grant>,
 }
+
+/// What an OAuth client was granted: its access token expires within the hour, and its refresh
+/// token (rotated on every use) gets it a new one.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Grant {
+    client_id: String,
+    access_expires: i64,
+    refresh_hash: String,
+    refresh_expires: i64,
+}
+
+/// An OAuth client that registered itself (RFC 7591).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OAuthClient {
+    pub client_id: String,
+    pub client_name: String,
+    pub redirect_uris: Vec<String>,
+    /// Hex SHA-256 of its secret, for a confidential client.
+    #[serde(default)]
+    secret_hash: Option<String>,
+    pub created_at: i64,
+}
+
+/// A client as the authorization endpoint needs it: registered here, or described by its
+/// metadata document (its `client_id` is that document's https URL).
+#[derive(Clone, Debug)]
+pub struct ClientInfo {
+    pub client_id: String,
+    pub name: String,
+    pub redirect_uris: Vec<String>,
+    secret_hash: Option<String>,
+}
+
+/// A code the authorization endpoint gave, redeemed once at the token endpoint.
+struct AuthCode {
+    client_id: String,
+    client_name: String,
+    redirect_uri: String,
+    challenge: String,
+    apps: Option<Vec<String>>,
+    expires: Instant,
+}
+
+/// What the token endpoint hands out.
+#[derive(Debug, Serialize)]
+pub struct TokenSet {
+    pub access_token: String,
+    pub token_type: &'static str,
+    pub expires_in: i64,
+    pub refresh_token: String,
+}
+
+/// An OAuth error code (RFC 6749 §5.2).
+pub type OAuthError = &'static str;
+
+const ACCESS_LIFE: i64 = 3600;
+const REFRESH_LIFE: i64 = 60 * 24 * 3600;
+const CODE_LIFE: Duration = Duration::from_secs(600);
+const REFRESH_PREFIX: &str = "aclr_";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Settings {
@@ -67,6 +129,8 @@ struct Settings {
     apps: BTreeSet<String>,
     #[serde(default)]
     tokens: Vec<StoredToken>,
+    #[serde(default)]
+    clients: Vec<OAuthClient>,
     /// Unix seconds of the last clean-up of old files.
     #[serde(default)]
     last_cleanup: i64,
@@ -91,6 +155,7 @@ impl Default for Settings {
             max_sessions: default_sessions(),
             apps: BTreeSet::new(),
             tokens: Vec::new(),
+            clients: Vec::new(),
             last_cleanup: 0,
         }
     }
@@ -168,6 +233,9 @@ pub struct Mcp {
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     sizes: Mutex<HashMap<&'static str, (u64, Instant)>>,
     dirty: AtomicBool,
+    codes: Mutex<HashMap<String, AuthCode>>,
+    /// Client metadata documents read lately, by client id.
+    documents: Mutex<HashMap<String, (ClientInfo, Instant)>>,
 }
 
 impl Mcp {
@@ -182,6 +250,8 @@ impl Mcp {
             sessions: Mutex::default(),
             sizes: Mutex::default(),
             dirty: AtomicBool::new(false),
+            codes: Mutex::default(),
+            documents: Mutex::default(),
         })
     }
 
@@ -240,6 +310,7 @@ impl Mcp {
                     apps: t.apps.clone(),
                     created_at: t.created_at,
                     last_used: t.last_used,
+                    oauth: t.grant.is_some(),
                 })
                 .collect(),
         }
@@ -355,6 +426,7 @@ impl Mcp {
             apps,
             created_at: artcraft_launcher_native::now(),
             last_used: None,
+            grant: None,
         };
         let mut settings = self.settings();
         if settings.tokens.len() >= 100 {
@@ -392,6 +464,10 @@ impl Mcp {
         let hash = fingerprint(secret);
         let mut s = self.settings();
         let token = s.tokens.iter_mut().find(|t| same(t.hash.as_bytes(), hash.as_bytes())).ok_or(Refusal::SignIn)?;
+        // An OAuth client's expired access token: it refreshes it.
+        if token.grant.as_ref().is_some_and(|g| g.access_expires <= artcraft_launcher_native::now()) {
+            return Err(Refusal::SignIn);
+        }
         if token.apps.as_ref().is_some_and(|list| !list.iter().any(|a| a == app)) {
             return Err(Refusal::Forbidden);
         }
@@ -488,6 +564,161 @@ impl Mcp {
         Ok(session)
     }
 
+    /// Whether the MCP server is on (the consent page says so when it isn't).
+    pub fn enabled(&self) -> bool {
+        self.settings().enabled
+    }
+
+    /// Registers an OAuth client (RFC 7591); a confidential one also gets a secret.
+    pub fn register_client(&self, name: &str, redirect_uris: Vec<String>, confidential: bool) -> Result<(OAuthClient, Option<String>), String> {
+        if redirect_uris.is_empty() || redirect_uris.len() > 10 || !redirect_uris.iter().all(|u| redirect_allowed(u)) {
+            return Err("redirect_uris must be https addresses (or http on this machine)".into());
+        }
+        let name: String = name.trim().chars().take(80).collect();
+        let secret = if confidential { Some(format!("acls_{}", random_text(32)?)) } else { None };
+        let client = OAuthClient {
+            client_id: format!("aclc_{}", random_text(12)?),
+            client_name: if name.is_empty() { "MCP client".into() } else { name },
+            redirect_uris,
+            secret_hash: secret.as_deref().map(fingerprint),
+            created_at: artcraft_launcher_native::now(),
+        };
+        let mut s = self.settings();
+        // Registration is open (approving still takes the administrator's password): keep the
+        // newest 200, dropping those no token was granted to first.
+        if s.clients.len() >= 200 {
+            let used: BTreeSet<String> = s.tokens.iter().filter_map(|t| t.grant.as_ref().map(|g| g.client_id.clone())).collect();
+            if let Some(i) = s.clients.iter().position(|c| !used.contains(&c.client_id)) {
+                s.clients.remove(i);
+            } else {
+                s.clients.remove(0);
+            }
+        }
+        s.clients.push(client.clone());
+        drop(s);
+        self.save();
+        Ok((client, secret))
+    }
+
+    /// A registered client, or one whose metadata document was read lately.
+    pub fn client(&self, client_id: &str) -> Option<ClientInfo> {
+        if let Some(c) = self.settings().clients.iter().find(|c| c.client_id == client_id) {
+            return Some(ClientInfo {
+                client_id: c.client_id.clone(),
+                name: c.client_name.clone(),
+                redirect_uris: c.redirect_uris.clone(),
+                secret_hash: c.secret_hash.clone(),
+            });
+        }
+        let docs = self.documents.lock().unwrap_or_else(PoisonError::into_inner);
+        docs.get(client_id).filter(|(_, at)| at.elapsed() < Duration::from_secs(3600)).map(|(c, _)| c.clone())
+    }
+
+    /// Keeps a client described by its metadata document for an hour.
+    pub fn remember_document(&self, client_id: &str, name: &str, redirect_uris: Vec<String>) -> ClientInfo {
+        let info = ClientInfo {
+            client_id: client_id.to_string(),
+            name: name.chars().take(80).collect(),
+            redirect_uris: redirect_uris.into_iter().filter(|u| redirect_allowed(u)).collect(),
+            secret_hash: None,
+        };
+        self.documents.lock().unwrap_or_else(PoisonError::into_inner).insert(client_id.to_string(), (info.clone(), Instant::now()));
+        info
+    }
+
+    /// Whether the client authenticated as it registered: a confidential one with its secret.
+    pub fn client_authenticates(&self, client: &ClientInfo, secret: Option<&str>) -> bool {
+        match (&client.secret_hash, secret) {
+            (None, _) => true,
+            (Some(hash), Some(secret)) => same(hash.as_bytes(), fingerprint(secret).as_bytes()),
+            (Some(_), None) => false,
+        }
+    }
+
+    /// The administrator approved: a one-time code for the client to redeem.
+    pub fn new_code(&self, client: &ClientInfo, redirect_uri: &str, challenge: &str, apps: Option<Vec<String>>) -> Result<String, String> {
+        let code = random_text(32)?;
+        let mut codes = self.codes.lock().unwrap_or_else(PoisonError::into_inner);
+        codes.retain(|_, c| c.expires > Instant::now());
+        codes.insert(
+            code.clone(),
+            AuthCode {
+                client_id: client.client_id.clone(),
+                client_name: client.name.clone(),
+                redirect_uri: redirect_uri.to_string(),
+                challenge: challenge.to_string(),
+                apps,
+                expires: Instant::now() + CODE_LIFE,
+            },
+        );
+        Ok(code)
+    }
+
+    /// Redeems a code (once) for tokens, checking the PKCE verifier.
+    pub fn redeem_code(&self, code: &str, client_id: &str, redirect_uri: &str, verifier: &str) -> Result<TokenSet, OAuthError> {
+        let found = self.codes.lock().unwrap_or_else(PoisonError::into_inner).remove(code).ok_or("invalid_grant")?;
+        if found.expires <= Instant::now() || found.client_id != client_id || found.redirect_uri != redirect_uri {
+            return Err("invalid_grant");
+        }
+        if !(43..=128).contains(&verifier.len()) || !same(pkce_challenge(verifier).as_bytes(), found.challenge.as_bytes()) {
+            return Err("invalid_grant");
+        }
+        let (access, refresh) = (format!("{TOKEN_PREFIX}{}", random_text(32).map_err(|_| "server_error")?), self.new_refresh()?);
+        let now = artcraft_launcher_native::now();
+        let token = StoredToken {
+            id: random_text(9).map_err(|_| "server_error")?,
+            name: found.client_name,
+            hash: fingerprint(&access),
+            hint: access.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect(),
+            apps: found.apps,
+            created_at: now,
+            last_used: None,
+            grant: Some(Grant {
+                client_id: found.client_id,
+                access_expires: now + ACCESS_LIFE,
+                refresh_hash: fingerprint(&refresh),
+                refresh_expires: now + REFRESH_LIFE,
+            }),
+        };
+        let mut s = self.settings();
+        if s.tokens.len() >= 100 {
+            return Err("access_denied");
+        }
+        s.tokens.push(token);
+        drop(s);
+        self.save();
+        Ok(TokenSet { access_token: access, token_type: "Bearer", expires_in: ACCESS_LIFE, refresh_token: refresh })
+    }
+
+    /// A new access token for a refresh token; the refresh token is replaced too.
+    pub fn refresh(&self, refresh: &str, client_id: &str) -> Result<TokenSet, OAuthError> {
+        let hash = fingerprint(refresh);
+        let now = artcraft_launcher_native::now();
+        let (access, new_refresh) = (format!("{TOKEN_PREFIX}{}", random_text(32).map_err(|_| "server_error")?), self.new_refresh()?);
+        let mut s = self.settings();
+        let token = s
+            .tokens
+            .iter_mut()
+            .find(|t| t.grant.as_ref().is_some_and(|g| same(g.refresh_hash.as_bytes(), hash.as_bytes())))
+            .ok_or("invalid_grant")?;
+        let grant = token.grant.as_mut().ok_or("invalid_grant")?;
+        if grant.client_id != client_id || grant.refresh_expires <= now {
+            return Err("invalid_grant");
+        }
+        grant.access_expires = now + ACCESS_LIFE;
+        grant.refresh_hash = fingerprint(&new_refresh);
+        grant.refresh_expires = now + REFRESH_LIFE;
+        token.hash = fingerprint(&access);
+        token.hint = access.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+        drop(s);
+        self.save();
+        Ok(TokenSet { access_token: access, token_type: "Bearer", expires_in: ACCESS_LIFE, refresh_token: new_refresh })
+    }
+
+    fn new_refresh(&self) -> Result<String, OAuthError> {
+        random_text(32).map(|r| format!("{REFRESH_PREFIX}{r}")).map_err(|_| "server_error")
+    }
+
     fn close_where(&self, mut which: impl FnMut(&Session) -> bool) {
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         let ids: Vec<String> = sessions.values().filter(|s| which(s)).map(|s| s.id.clone()).collect();
@@ -563,6 +794,19 @@ pub async fn answer(mut rx: mpsc::UnboundedReceiver<String>, id: &Value) -> Opti
 /// A JSON-RPC error answer.
 pub fn rpc_error(id: Option<&Value>, code: i64, message: &str) -> String {
     serde_json::json!({"jsonrpc": "2.0", "id": id.cloned().unwrap_or(Value::Null), "error": {"code": code, "message": message}}).to_string()
+}
+
+/// Where an OAuth client may be sent back to: https, or http on this machine (desktop clients).
+pub fn redirect_allowed(uri: &str) -> bool {
+    let local = ["http://localhost", "http://127.0.0.1", "http://[::1]"]
+        .iter()
+        .any(|p| uri.strip_prefix(p).is_some_and(|rest| rest.is_empty() || rest.starts_with([':', '/'])));
+    (uri.starts_with("https://") || local) && uri.len() <= 512 && !uri.contains('#') && !uri.chars().any(char::is_whitespace)
+}
+
+/// PKCE S256: base64url(SHA-256(verifier)) without padding.
+pub fn pkce_challenge(verifier: &str) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
 fn fingerprint(secret: &str) -> String {
@@ -652,6 +896,44 @@ mod tests {
         assert!(saved.contains(&fingerprint(&secret)));
         assert!(mcp.create_token("  ", None).is_err());
         assert!(mcp.create_token("x", Some(vec!["nope".into()])).is_err());
+    }
+
+    #[test]
+    fn an_oauth_client_gets_tokens_once_and_refreshes_them() {
+        let (_dir, mcp) = mcp();
+        assert!(mcp.register_client("x", vec!["ftp://nope".into()], false).is_err());
+        let (client, secret) = mcp.register_client("Claude", vec!["https://claude.ai/api/mcp/auth_callback".into()], false).unwrap();
+        assert!(secret.is_none());
+        let info = mcp.client(&client.client_id).unwrap();
+        let verifier = "a".repeat(50);
+        let code = mcp.new_code(&info, "https://claude.ai/api/mcp/auth_callback", &pkce_challenge(&verifier), None).unwrap();
+        // A wrong verifier spends nothing; the code works once.
+        assert_eq!(
+            mcp.redeem_code(&code, &client.client_id, "https://claude.ai/api/mcp/auth_callback", &"b".repeat(50)).unwrap_err(),
+            "invalid_grant"
+        );
+        let code = mcp.new_code(&info, "https://claude.ai/api/mcp/auth_callback", &pkce_challenge(&verifier), None).unwrap();
+        let tokens = mcp.redeem_code(&code, &client.client_id, "https://claude.ai/api/mcp/auth_callback", &verifier).unwrap();
+        assert!(mcp.redeem_code(&code, &client.client_id, "https://claude.ai/api/mcp/auth_callback", &verifier).is_err());
+        assert!(tokens.access_token.starts_with("acl_") && tokens.refresh_token.starts_with("aclr_"));
+        let renewed = mcp.refresh(&tokens.refresh_token, &client.client_id).unwrap();
+        assert_ne!(renewed.access_token, tokens.access_token);
+        assert!(mcp.refresh(&tokens.refresh_token, &client.client_id).is_err(), "a refresh token works once");
+        assert!(mcp.refresh(&renewed.refresh_token, "someone-else").is_err());
+        let state_tokens = mcp.settings().tokens.clone();
+        assert_eq!(state_tokens.len(), 1);
+        assert!(state_tokens[0].grant.is_some());
+    }
+
+    #[test]
+    fn redirects_go_only_to_https_or_this_machine() {
+        assert!(redirect_allowed("https://claude.ai/api/mcp/auth_callback"));
+        assert!(redirect_allowed("http://localhost:33418/callback"));
+        assert!(redirect_allowed("http://127.0.0.1/cb"));
+        assert!(!redirect_allowed("http://localhost.evil.com/cb"));
+        assert!(!redirect_allowed("http://example.com/cb"));
+        assert!(!redirect_allowed("javascript:alert(1)"));
+        assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
     }
 
     #[test]

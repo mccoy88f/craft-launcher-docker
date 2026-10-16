@@ -374,3 +374,16 @@ filter	Installed	Instalados
 	Its MCP work folder on the server is deleted too.	A pasta de trabalho MCP dele no servidor também será excluída.
 @plural	{n} day|{n} days	{n} dia|{n} dias
 @msg	{name}: MCP server ready	{name}: servidor MCP pronto
+
+# The launcher server's OAuth page, where the administrator lets an MCP client in.
+	Connect {client} to ArtCraft Launcher	Conectar {client} ao ArtCraft Launcher
+	{client} asks to use the Craft Apps on this server over MCP: to open, edit and save files in their work folders.	{client} pede para usar os Craft Apps deste servidor via MCP: para abrir, editar e salvar arquivos nas pastas de trabalho deles.
+	After you allow it, you go back to {host}.	Depois que você permitir, voltará para {host}.
+	Apps it may use	Aplicativos que pode usar
+	Administrator	Administrador
+	Password	Senha
+	Allow	Permitir
+	Deny	Negar
+	Wrong name or password.	Nome ou senha incorretos.
+	The MCP server is off: turn it on in the launcher's settings first.	O servidor MCP está desativado: ative-o primeiro nas configurações do launcher.
+	This request isn't valid: {why}	Esta solicitação não é válida: {why}

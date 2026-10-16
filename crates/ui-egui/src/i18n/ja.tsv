@@ -389,3 +389,16 @@ filter	Installed	インストール済み
 	Its MCP work folder on the server is deleted too.	サーバー上のMCP作業フォルダーも削除されます。
 @plural	{n} day|{n} days	{n}日
 @msg	{name}: MCP server ready	{name}: MCPサーバーの準備ができました
+
+# The launcher server's OAuth page, where the administrator lets an MCP client in.
+	Connect {client} to ArtCraft Launcher	{client}をArtCraft Launcherに接続
+	{client} asks to use the Craft Apps on this server over MCP: to open, edit and save files in their work folders.	{client}が、このサーバーのCraftアプリをMCPで使う許可を求めています。作業フォルダー内のファイルを開き、編集し、保存します。
+	After you allow it, you go back to {host}.	許可すると、{host}に戻ります。
+	Apps it may use	使用できるアプリ
+	Administrator	管理者
+	Password	パスワード
+	Allow	許可
+	Deny	拒否
+	Wrong name or password.	名前またはパスワードが違います。
+	The MCP server is off: turn it on in the launcher's settings first.	MCPサーバーがオフです。先にランチャーの設定でオンにしてください。
+	This request isn't valid: {why}	このリクエストは無効です: {why}

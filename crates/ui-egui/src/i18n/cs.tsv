@@ -354,3 +354,16 @@ filter	Installed	Nainstalováno
 	Its MCP work folder on the server is deleted too.	Smaže se i její pracovní složka MCP na serveru.
 @plural	{n} day|{n} days	{n} den|{n} dny|{n} dní
 @msg	{name}: MCP server ready	{name}: server MCP připraven
+
+# The launcher server's OAuth page, where the administrator lets an MCP client in.
+	Connect {client} to ArtCraft Launcher	Připojit {client} k ArtCraft Launcher
+	{client} asks to use the Craft Apps on this server over MCP: to open, edit and save files in their work folders.	{client} žádá o použití aplikací Craft na tomto serveru přes MCP: k otevírání, úpravám a ukládání souborů v jejich pracovních složkách.
+	After you allow it, you go back to {host}.	Po povolení se vrátíte na {host}.
+	Apps it may use	Aplikace, které smí používat
+	Administrator	Správce
+	Password	Heslo
+	Allow	Povolit
+	Deny	Zamítnout
+	Wrong name or password.	Nesprávné jméno nebo heslo.
+	The MCP server is off: turn it on in the launcher's settings first.	Server MCP je vypnutý: nejprve ho zapněte v nastavení launcheru.
+	This request isn't valid: {why}	Tento požadavek není platný: {why}

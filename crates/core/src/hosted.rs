@@ -13,6 +13,7 @@
 //!
 //! | `POST admin/api/mcp` with a [`McpChange`] | the administrator | [`McpAnswer`] |
 //! | `POST`, `DELETE mcp/<app>` | an MCP client with an access token | MCP (Streamable HTTP) |
+//! | `.well-known/oauth-*`, `oauth/register`, `oauth/authorize`, `oauth/token` | MCP clients signing in | OAuth 2.1 |
 //!
 //! `<action>` is `install`, `uninstall`, `pause` or `cancel`. Every `POST` under `admin/` carries
 //! the [`REQUEST_HEADER`] header, which a form on another site can't send.
@@ -145,6 +146,9 @@ pub struct McpToken {
     /// Unix seconds.
     pub created_at: i64,
     pub last_used: Option<i64>,
+    /// An OAuth client got it by signing in (claude.ai, Claude's apps); it renews itself.
+    #[serde(default)]
+    pub oauth: bool,
 }
 
 /// A change to the MCP server.

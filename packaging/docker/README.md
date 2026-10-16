@@ -62,6 +62,24 @@ MCP's Streamable HTTP transport. It's off until the administrator turns it on:
    keeps only each token's SHA-256 fingerprint; **Revoke** ends that client's access and its
    sessions at once.
 
+### claude.ai, Claude Desktop and Claude's mobile apps (OAuth)
+
+Those connect by signing in (OAuth 2.1, as MCP's authorization spec describes), not with a pasted
+token:
+
+1. On claude.ai: **Customize → Connectors → Add custom connector** (Team and Enterprise: an owner,
+   under **Organization settings → Connectors**). Give it a name and the app's address, for example
+   `https://<DOMAIN>/mcp/photocraft`; leave the OAuth fields empty.
+2. **Connect** opens the launcher's sign-in page: enter the administrator's name and password and
+   choose **Allow**. Claude gets an access token for that app (renewed by itself), listed in
+   Settings with Claude's name and "OAuth", and revoked there like the others.
+3. The connector then works in Claude on the web, on the desktop and in the mobile apps.
+
+The server finds its public address from the reverse proxy's `X-Forwarded-Proto` and `Host`
+headers (Traefik and Caddy send them). If the sign-in page or the addresses in
+`/.well-known/oauth-authorization-server` show the wrong address, set `ARTCRAFT_PUBLIC_URL`
+(for example `https://launcher.example.com`).
+
 Each app works in its own folder, `/work/<app>` (the `launcher-work` volume), its only read and
 write root: it can't open or write files anywhere else. It works on the files there, not on the
 documents open in visitors' browsers. In Settings:
@@ -90,6 +108,7 @@ it installed from their `storytold/` releases.
 | `ARTCRAFT_ADMIN_USER` | `admin` | The administrator's name. |
 | `ARTCRAFT_CHECK_MINUTES` | `30` | How often the server looks for new releases. The administrator's Refresh button looks at once (at most once a minute). |
 | `ARTCRAFT_LAUNCHER_GITHUB_TOKEN` | | Optional GitHub token (no scopes needed): 5000 API requests an hour instead of 60. Only ever sent to `api.github.com`. |
+| `ARTCRAFT_PUBLIC_URL` | (from the proxy's headers) | The server's public address, for OAuth (`https://launcher.example.com`). |
 | `ARTCRAFT_LISTEN` | `0.0.0.0:8080` | Where the server listens inside the container. |
 | `ARTCRAFT_DATA_DIR` | `/data` | Installed apps, MCP settings and tokens, saved release answers and downloads (the `launcher-data` volume). |
 | `ARTCRAFT_WORK_DIR` | `/work` | The apps' MCP work folders (the `launcher-work` volume). |
