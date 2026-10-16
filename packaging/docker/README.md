@@ -14,7 +14,8 @@ device: no remote desktop, no VNC, nothing streamed.
 Everyone sees the same page. **Install**, **Update**, **Uninstall…**, the MCP switches and the
 MCP settings show for visitors too; using one takes a visitor to the sign-in page, and back once
 signed in. **Settings → Sign in as administrator** does the same, and **Sign out** ends the
-session. Visitors see the access tokens' names, never even their last characters. Each app's
+session. The sign-in and OAuth pages speak the language chosen in the launcher's settings (the
+page tells the server in an `artcraft_lang` cookie), else the browser's. Visitors see the access tokens' names, never even their last characters. Each app's
 details page has a folded **MCP server** button under Website, GitHub and Releases: it unfolds
 into the app's status (its browser version, whether its MCP tool is installed and whether MCP is
 on), its MCP address and its work folder. **Settings → On this server** lists the same for every

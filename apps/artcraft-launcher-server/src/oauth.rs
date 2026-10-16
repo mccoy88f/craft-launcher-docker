@@ -464,6 +464,9 @@ fn credential_fields(lang: &Lang) -> String {
 pub struct NextQuery {
     #[serde(default)]
     next: Option<String>,
+    /// The launcher's language, from its page.
+    #[serde(default)]
+    lang: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -474,6 +477,8 @@ pub struct LoginForm {
     password: String,
     #[serde(default)]
     next: Option<String>,
+    #[serde(default)]
+    lang: Option<String>,
 }
 
 /// Where to go after signing in: a path on this site, nothing else (no open redirect).
@@ -493,10 +498,12 @@ fn login_form(lang: &Lang, next: &str, error: Option<&str>, off: bool) -> Respon
     let error = error.map(|e| format!("<p class=\"error\" role=\"alert\">{}</p>", escape(e))).unwrap_or_default();
     let off = if off { "<p class=\"error\">ARTCRAFT_ADMIN_PASSWORD</p>" } else { "" };
     let body = format!(
-        "<h1>{title}</h1>{off}<form method=\"post\" action=\"login\"><input type=\"hidden\" name=\"next\" value=\"{next}\">{fields}{error}\
+        "<h1>{title}</h1>{off}<form method=\"post\" action=\"login\"><input type=\"hidden\" name=\"next\" value=\"{next}\">\
+         <input type=\"hidden\" name=\"lang\" value=\"{code}\">{fields}{error}\
          <div class=\"row\"><button class=\"primary\" type=\"submit\">{sign_in}</button></div></form>",
         title = escape(lang.t("Sign in as administrator")),
         next = escape(next),
+        code = escape(lang.code),
         fields = credential_fields(lang),
         sign_in = escape(lang.t("Sign in")),
     );
@@ -509,12 +516,12 @@ pub async fn login_page(State(server): State<Shared>, headers: HeaderMap, Query(
     if crate::routes::is_admin(&server, &headers) {
         return Redirect::to(&next).into_response();
     }
-    login_form(&Lang::from_headers(&headers), &next, None, server.admin.is_none())
+    login_form(&Lang::from_request(&headers, q.lang.as_deref()), &next, None, server.admin.is_none())
 }
 
 /// `POST /admin/login`: the name and password; a session cookie, and back to where it started.
 pub async fn login(State(server): State<Shared>, headers: HeaderMap, Form(f): Form<LoginForm>) -> Response {
-    let lang = Lang::from_headers(&headers);
+    let lang = Lang::from_request(&headers, f.lang.as_deref());
     let next = safe_next(f.next.as_deref());
     let Some(admin) = &server.admin else { return login_form(&lang, &next, None, true) };
     if !admin.allows_login(&f.user, &f.password) {
@@ -551,6 +558,9 @@ pub async fn logout(State(server): State<Shared>, headers: HeaderMap) -> Respons
 }
 
 // ---- the page's languages: the launcher's own catalogs ----------------------------------------
+
+/// The cookie the launcher's page sets to the language chosen in its settings.
+const LANG_COOKIE: &str = "artcraft_lang";
 
 /// The catalogs of the launcher's interface (`crates/ui-egui/src/i18n`), whose rows the page's
 /// strings are in, so every language the launcher speaks has them.
@@ -592,15 +602,36 @@ struct Lang {
 }
 
 impl Lang {
-    /// The first language of `Accept-Language` the launcher speaks, else English.
+    /// The language chosen in the launcher (its `artcraft_lang` cookie), else the first language
+    /// of `Accept-Language` the launcher speaks, else English.
     fn from_headers(headers: &HeaderMap) -> Self {
-        let accept = headers.get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()).unwrap_or("");
-        let code = accept.split(',').filter_map(|part| pick(part.split(';').next().unwrap_or("").trim())).next();
-        let source = code.and_then(|c| CATALOGS.iter().find(|(k, _)| *k == c));
-        match source {
-            Some((code, text)) => Lang { code, rows: parse(text) },
-            None => Lang { code: "en", rows: HashMap::new() },
+        Self::from_request(headers, None)
+    }
+
+    /// [`Lang::from_headers`], with `chosen` (a page's `lang` parameter) first.
+    fn from_request(headers: &HeaderMap, chosen: Option<&str>) -> Self {
+        let cookie = headers.get_all(header::COOKIE).iter().filter_map(|v| v.to_str().ok()).flat_map(|v| v.split(';')).find_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            (name == LANG_COOKIE).then(|| value.to_string())
+        });
+        for choice in [chosen.map(str::to_string), cookie].into_iter().flatten() {
+            if choice.eq_ignore_ascii_case("en") {
+                return Lang { code: "en", rows: HashMap::new() };
+            }
+            if let Some(lang) = pick(&choice).and_then(Self::named) {
+                return lang;
+            }
         }
+        let accept = headers.get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()).unwrap_or("");
+        accept
+            .split(',')
+            .filter_map(|part| pick(part.split(';').next().unwrap_or("").trim()))
+            .find_map(Self::named)
+            .unwrap_or(Lang { code: "en", rows: HashMap::new() })
+    }
+
+    fn named(code: &str) -> Option<Self> {
+        CATALOGS.iter().find(|(k, _)| *k == code).map(|(code, text)| Lang { code, rows: parse(text) })
     }
 
     fn t<'a>(&'a self, key: &'a str) -> &'a str {
@@ -666,6 +697,14 @@ mod tests {
         assert_eq!(lang("xx,pt-PT;q=0.5"), "pt-BR");
         assert_eq!(lang("zh-TW,en"), "en");
         assert_eq!(lang("en-US"), "en");
+        // The launcher's own choice comes first: its page's parameter, then its cookie.
+        let mut h = HeaderMap::new();
+        h.insert(header::ACCEPT_LANGUAGE, "it-IT".parse().unwrap());
+        h.insert(header::COOKIE, "artcraft_admin=x; artcraft_lang=ja".parse().unwrap());
+        assert_eq!(Lang::from_headers(&h).code, "ja");
+        assert_eq!(Lang::from_request(&h, Some("de")).code, "de");
+        assert_eq!(Lang::from_request(&h, Some("en")).code, "en");
+        assert_eq!(Lang::from_request(&h, Some("xx")).code, "ja");
     }
 
     #[test]

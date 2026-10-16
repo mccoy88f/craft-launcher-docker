@@ -329,7 +329,8 @@ fn sign_in() {
     let location = window.location();
     let here = format!("{}{}", location.pathname().unwrap_or_else(|_| "/".into()), location.search().unwrap_or_default());
     let next: String = js_sys::encode_uri_component(&here).into();
-    let _ = location.set_href(&format!("admin/login?next={next}"));
+    let lang = artcraft_launcher_ui_egui::i18n::current().code();
+    let _ = location.set_href(&format!("admin/login?next={next}&lang={lang}"));
 }
 
 /// Ends the session and shows the page again, as a visitor.

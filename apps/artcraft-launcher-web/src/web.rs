@@ -89,7 +89,7 @@ pub fn start() {
                         Some(state) => Box::new(crate::server::ServerBackend::new(ctx.clone(), state)),
                         None => Box::new(WebBackend::new(ctx.clone())),
                     };
-                    Ok(Box::new(WebApp { ui: LauncherUi::new(&ctx, backend, settings) }))
+                    Ok(Box::new(WebApp { ui: LauncherUi::new(&ctx, backend, settings), told_lang: None }))
                 }),
             )
             .await;
@@ -100,6 +100,13 @@ pub fn start() {
             log::error!("couldn't start: {e:?}");
         }
     });
+}
+
+/// Remembers the interface language in a cookie the launcher server's own pages read.
+fn set_lang_cookie(code: &str) {
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+    let Ok(html) = document.dyn_into::<web_sys::HtmlDocument>() else { return };
+    let _ = html.set_cookie(&format!("artcraft_lang={code}; Path=/; Max-Age=31536000; SameSite=Lax"));
 }
 
 /// The browser: nothing of the desktop's, but it knows whether the visitor asked for fewer animations.
@@ -113,11 +120,19 @@ impl Host for WebHost {
 
 struct WebApp {
     ui: LauncherUi,
+    /// The interface language last told to the server's own pages.
+    told_lang: Option<&'static str>,
 }
 
 impl eframe::App for WebApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.ui.logic(ctx, &mut WebHost);
+        // The sign-in and OAuth pages the server draws itself follow the language chosen here.
+        let code = i18n::current().code();
+        if self.told_lang != Some(code) {
+            self.told_lang = Some(code);
+            set_lang_cookie(code);
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
