@@ -270,7 +270,11 @@ impl ServerBackend {
                     {
                         events.push(Event::LauncherUpdate(l));
                     }
-                    events.push(Event::CheckFinished { at: r.checked_at, source: r.source, rate_limited_until: r.rate_limited_until });
+                    // When the page asked, not when the server last asked GitHub: the server keeps
+                    // its answer for ARTCRAFT_CHECK_MINUTES, and an older time would make the page
+                    // ask again at once, over and over.
+                    let at = (js_sys::Date::now() / 1000.0) as i64;
+                    events.push(Event::CheckFinished { at: at.max(r.checked_at), source: r.source, rate_limited_until: r.rate_limited_until });
                 }
                 Err(why) => {
                     for app in &SUITE {
