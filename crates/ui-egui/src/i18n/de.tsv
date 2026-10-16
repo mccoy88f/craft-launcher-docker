@@ -426,3 +426,5 @@ filter	Installed	Installiert
 	Revoke it? Its files on the server are deleted too.	Widerrufen? Seine Dateien auf dem Server werden ebenfalls gelöscht.
 @plural	deleted in {n} day|deleted in {n} days	wird in {n} Tag gelöscht|wird in {n} Tagen gelöscht
 @plural	…and {n} more file|…and {n} more files	…und {n} weitere Datei|…und {n} weitere Dateien
+	MCP tool not usable	MCP-Werkzeug nicht nutzbar
+	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	Das MCP-Werkzeug dieser Version lässt sich nicht auf seinen Arbeitsordner beschränken, daher startet der Server es nicht. Mit einer neueren Version der App funktioniert es.

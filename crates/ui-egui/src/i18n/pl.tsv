@@ -428,3 +428,5 @@ filter	Installed	Zainstalowane
 	Revoke it? Its files on the server are deleted too.	Unieważnić? Jego pliki na serwerze również zostaną usunięte.
 @plural	deleted in {n} day|deleted in {n} days	zostanie usunięty za {n} dzień|zostanie usunięty za {n} dni|zostanie usunięty za {n} dni
 @plural	…and {n} more file|…and {n} more files	…i {n} kolejny plik|…i {n} kolejne pliki|…i {n} kolejnych plików
+	MCP tool not usable	Narzędzie MCP nie nadaje się do użycia
+	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	Narzędzia MCP tej wersji nie da się ograniczyć do jego folderu roboczego, więc serwer go nie uruchamia. Nowsza wersja aplikacji będzie działać.

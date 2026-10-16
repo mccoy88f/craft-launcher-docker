@@ -394,3 +394,5 @@ filter	Installed	Nainstalováno
 	Revoke it? Its files on the server are deleted too.	Odvolat? Jeho soubory na serveru budou také smazány.
 @plural	deleted in {n} day|deleted in {n} days	bude smazán za {n} den|bude smazán za {n} dny|bude smazán za {n} dní
 @plural	…and {n} more file|…and {n} more files	…a {n} další soubor|…a {n} další soubory|…a {n} dalších souborů
+	MCP tool not usable	Nástroj MCP nelze použít
+	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	Nástroj MCP této verze nelze omezit na jeho pracovní složku, proto ho server nespouští. S novější verzí aplikace bude fungovat.

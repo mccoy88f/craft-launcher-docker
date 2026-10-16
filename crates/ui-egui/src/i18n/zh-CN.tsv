@@ -394,3 +394,5 @@ figcraft	Interface design and prototyping	界面设计与原型制作
 	Revoke it? Its files on the server are deleted too.	撤销它？它在服务器上的文件也会被删除。
 @plural	deleted in {n} day|deleted in {n} days	{n} 天后删除
 @plural	…and {n} more file|…and {n} more files	…还有 {n} 个文件
+	MCP tool not usable	MCP 工具不可用
+	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	此版本的 MCP 工具无法限制在其工作文件夹内，因此服务器不会运行它。应用的新版本将可以使用。

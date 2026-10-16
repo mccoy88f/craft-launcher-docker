@@ -429,3 +429,5 @@ filter	Installed	インストール済み
 	Revoke it? Its files on the server are deleted too.	取り消しますか？サーバー上のファイルも削除されます。
 @plural	deleted in {n} day|deleted in {n} days	{n}日後に削除
 @plural	…and {n} more file|…and {n} more files	…ほか {n} 個のファイル
+	MCP tool not usable	MCP ツールは使用できません
+	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	このリリースの MCP ツールは作業フォルダー内に制限できないため、サーバーは実行しません。アプリの新しいリリースでは動作します。

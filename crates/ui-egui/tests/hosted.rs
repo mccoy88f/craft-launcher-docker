@@ -104,6 +104,7 @@ fn mcp_event() -> Event {
                 work_dir: format!("/work/{}", a.id),
                 used_bytes: 3 << 20,
                 sessions: 0,
+                unconfined: false,
             })
             .collect(),
         tokens: vec![McpToken {

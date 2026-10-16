@@ -71,9 +71,21 @@ impl LauncherUi {
                 Some(v) => fmt(tl!("Browser version {version}"), &[("version", &v.to_string())]),
                 None => tl!("Not installed").to_string(),
             };
-            let tool = if app.ready { tl!("MCP tool ready") } else { tl!("MCP tool not installed") };
+            let tool = tool_label(app.ready, app.unconfined);
             let state = if app.enabled && mcp.enabled { tl!("MCP on") } else { tl!("MCP off") };
             ui.label(RichText::new(format!("{browser} · {tool} · {state}")).color(t.ink_strong));
+            if app.unconfined {
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(tl!(
+                            "This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work."
+                        ))
+                        .size(12.5)
+                        .color(t.warn),
+                    )
+                    .wrap(),
+                );
+            }
             if entry.installed.is_some() {
                 let mut on = app.enabled;
                 if ui.checkbox(&mut on, fmt(tl!("MCP server for {name}"), &[("name", entry.app.name)])).changed() {
@@ -244,7 +256,7 @@ impl LauncherUi {
         for e in installed {
             let version = e.installed.as_ref().and_then(|i| i.version.as_ref()).map(ToString::to_string).unwrap_or_default();
             let app = mcp.app(e.app.id);
-            let tool = if app.is_some_and(|a| a.ready) { tl!("MCP tool ready") } else { tl!("MCP tool not installed") };
+            let tool = tool_label(app.is_some_and(|a| a.ready), app.is_some_and(|a| a.unconfined));
             let state = if mcp.enabled && app.is_some_and(|a| a.enabled) { tl!("MCP on") } else { tl!("MCP off") };
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(e.app.name).color(t.ink_strong));
@@ -506,7 +518,16 @@ impl LauncherUi {
     }
 }
 
+/// The state of an app's MCP tool, in a few words.
+fn tool_label(ready: bool, unconfined: bool) -> &'static str {
+    match (ready, unconfined) {
+        (true, true) => tl!("MCP tool not usable"),
+        (true, false) => tl!("MCP tool ready"),
+        (false, _) => tl!("MCP tool not installed"),
+    }
+}
+
 /// Whether the MCP server of `app` is on, for the badge on its card.
 pub(crate) fn badge(mcp: Option<&McpState>, app: &str) -> bool {
-    mcp.is_some_and(|m| m.enabled && m.app(app).is_some_and(|a| a.enabled && a.ready))
+    mcp.is_some_and(|m| m.enabled && m.app(app).is_some_and(|a| a.enabled && a.ready && !a.unconfined))
 }

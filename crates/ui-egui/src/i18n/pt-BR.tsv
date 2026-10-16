@@ -414,3 +414,5 @@ filter	Installed	Instalados
 	Revoke it? Its files on the server are deleted too.	Revogar? Os arquivos dele no servidor também serão excluídos.
 @plural	deleted in {n} day|deleted in {n} days	será excluído em {n} dia|será excluído em {n} dias
 @plural	…and {n} more file|…and {n} more files	…e mais {n} arquivo|…e mais {n} arquivos
+	MCP tool not usable	Ferramenta MCP não utilizável
+	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	A ferramenta MCP desta versão não pode ficar restrita à sua pasta de trabalho, então o servidor não a executa. Uma versão mais recente do app vai funcionar.

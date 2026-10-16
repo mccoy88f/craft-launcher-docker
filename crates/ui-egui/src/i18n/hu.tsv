@@ -427,3 +427,5 @@ filter	Installed	Telepítve
 	Revoke it? Its files on the server are deleted too.	Visszavonja? A fájljai is törlődnek a szerverről.
 @plural	deleted in {n} day|deleted in {n} days	{n} nap múlva törlődik|{n} nap múlva törlődik
 @plural	…and {n} more file|…and {n} more files	…és még {n} fájl|…és még {n} fájl
+	MCP tool not usable	Az MCP-eszköz nem használható
+	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	Ennek a kiadásnak az MCP-eszköze nem korlátozható a munkamappájára, ezért a szerver nem indítja el. Az alkalmazás újabb kiadásával működni fog.

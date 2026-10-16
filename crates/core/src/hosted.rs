@@ -140,6 +140,10 @@ pub struct McpApp {
     pub used_bytes: u64,
     /// Sessions running now.
     pub sessions: u32,
+    /// Its command-line tool can't be confined to a work folder (a release from before
+    /// `--automation-read-root`), so the server doesn't run it.
+    #[serde(default)]
+    pub unconfined: bool,
 }
 
 /// The folder of files made before each client had its own: kept for the administrator to

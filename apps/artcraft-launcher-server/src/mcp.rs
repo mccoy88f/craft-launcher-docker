@@ -254,6 +254,8 @@ pub struct Mcp {
     settings: Mutex<Settings>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     sizes: Mutex<HashMap<PathBuf, (u64, Instant)>>,
+    /// Whether each command-line tool takes `--automation-read-root` (asked once per file).
+    confinable: Mutex<HashMap<PathBuf, bool>>,
     /// Download links handed to clients: the file, and until when.
     links: Mutex<HashMap<String, (PathBuf, Instant)>>,
     dirty: AtomicBool,
@@ -277,6 +279,7 @@ impl Mcp {
             sessions: Mutex::default(),
             sizes: Mutex::default(),
             links: Mutex::default(),
+            confinable: Mutex::default(),
             dirty: AtomicBool::new(false),
             codes: Mutex::default(),
             documents: Mutex::default(),
@@ -430,6 +433,7 @@ impl Mcp {
                     work_dir: self.work_dir(a.id).display().to_string(),
                     used_bytes: self.used_at(&self.work_dir(a.id)),
                     sessions: u32::try_from(sessions.iter().filter(|x| **x == a.id).count()).unwrap_or(u32::MAX),
+                    unconfined: hosting.cli(a.id).is_some_and(|cli| !self.confinable(&cli)),
                 })
                 .collect(),
             tokens: s
@@ -448,6 +452,22 @@ impl Mcp {
             file_from_url: s.file_from_url,
             files: if admin { self.all_files(&s.tokens) } else { Vec::new() },
         }
+    }
+
+    /// Whether a command-line tool can be confined to a work folder: its `mcp --help` names
+    /// `--automation-read-root` (releases from before it reject the option and exit). Asked once
+    /// per tool; a tool that can't be confined is never run, since it could reach every file the
+    /// server can.
+    pub fn confinable(&self, cli: &Path) -> bool {
+        if let Some(known) = self.confinable.lock().unwrap_or_else(PoisonError::into_inner).get(cli) {
+            return *known;
+        }
+        let answer = help_mentions(cli, "--automation-read-root");
+        if !answer {
+            log::warn!("{} can't be confined to a work folder (no --automation-read-root): it won't be run", cli.display());
+        }
+        self.confinable.lock().unwrap_or_else(PoisonError::into_inner).insert(cli.to_path_buf(), answer);
+        answer
     }
 
     /// Bytes in a folder, measured at most every half minute.
@@ -869,6 +889,13 @@ impl Mcp {
                 }
             }
         }
+        if !self.confinable(cli) {
+            return Err(format!(
+                "this release of {}'s command-line tool can't be confined to a work folder (it has no --automation-read-root), \
+                 so the launcher doesn't run it; a newer release of {} will work",
+                app.name, app.name
+            ));
+        }
         let dir = self.client_dir(app.id, &token).ok_or("no work folder for this token")?;
         std::fs::create_dir_all(&dir).map_err(|e| format!("couldn't create {} ({e})", dir.display()))?;
         let mut child = tokio::process::Command::new(cli)
@@ -920,9 +947,17 @@ impl Mcp {
         if let Some(stderr) = stderr {
             let app = app.id;
             tokio::spawn(async move {
+                // What the tool says about itself (and why it stopped): the first lines of each
+                // session in the log, the rest only when debugging.
                 let mut lines = tokio::io::BufReader::new(stderr).lines();
+                let mut n = 0;
                 while let Ok(Some(line)) = lines.next_line().await {
-                    log::debug!("{app} mcp: {line}");
+                    n += 1;
+                    if n <= 20 {
+                        log::info!("{app} mcp: {}", line.chars().take(500).collect::<String>());
+                    } else {
+                        log::debug!("{app} mcp: {line}");
+                    }
                 }
             });
         }
@@ -1191,6 +1226,41 @@ fn random_text(n: usize) -> Result<String, String> {
     let mut bytes = vec![0u8; n];
     getrandom::fill(&mut bytes).map_err(|e| format!("no randomness available ({e})"))?;
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
+/// Whether `cli mcp --help` mentions `option` (waiting at most five seconds).
+fn help_mentions(cli: &Path, option: &str) -> bool {
+    let child = std::process::Command::new(cli)
+        .args(["mcp", "--help"])
+        .env_clear()
+        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env("LANG", "C.UTF-8")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+    let Ok(mut child) = child else { return false };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+    let mut text = String::new();
+    for pipe in
+        [child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read>), child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read>)]
+            .into_iter()
+            .flatten()
+    {
+        let _ = std::io::Read::read_to_string(&mut std::io::Read::take(pipe, 1 << 20), &mut text);
+    }
+    text.contains(option)
 }
 
 /// Adds the files under `dir` to `out`, with paths starting with `prefix` (links aren't
@@ -1512,7 +1582,7 @@ mod tests {
             let mcp = Arc::new(mcp);
             // A stand-in tool that just stays up.
             let cli = dir.path().join("fake-cli");
-            std::fs::write(&cli, "#!/bin/sh\nexec sleep 30\n").unwrap();
+            std::fs::write(&cli, "#!/bin/sh\n[ \"$2\" = --help ] && exec echo 'mcp [--automation-read-root DIR]'\nexec sleep 30\n").unwrap();
             std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
             mcp.set_max_sessions(2).unwrap();
             assert_eq!(Mcp::open(dir.path(), dir.path().join("work")).unwrap().settings().max_sessions, 2, "a chosen number stays");
@@ -1526,6 +1596,25 @@ mod tests {
             assert!(!open.contains(&first.id) && open.contains(&second.id) && open.contains(&third.id));
             assert!(first.closed.load(Ordering::SeqCst));
             mcp.close_where(|_| true);
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_tool_that_cant_be_confined_is_never_run() {
+        use std::os::unix::fs::PermissionsExt;
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let (dir, mcp) = mcp();
+            let mcp = Arc::new(mcp);
+            // Like DeckCraft 0.7.0: no --automation-read-root in its help.
+            let cli = dir.path().join("old-cli");
+            std::fs::write(&cli, "#!/bin/sh\necho 'usage: mcp [--connect PORT]'\n").unwrap();
+            std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(!mcp.confinable(&cli));
+            let refused = mcp.start(CraftApp::by_id("deckcraft").unwrap(), "tok".into(), &cli).err().unwrap();
+            assert!(refused.contains("can't be confined"), "{refused}");
+            assert!(mcp.sessions.lock().unwrap().is_empty());
         });
     }
 

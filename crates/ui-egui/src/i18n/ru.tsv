@@ -422,3 +422,5 @@ filter	Installed	Установлены
 	Revoke it? Its files on the server are deleted too.	Отозвать? Его файлы на сервере тоже будут удалены.
 @plural	deleted in {n} day|deleted in {n} days	будет удалён через {n} день|будет удалён через {n} дня|будет удалён через {n} дней
 @plural	…and {n} more file|…and {n} more files	…и ещё {n} файл|…и ещё {n} файла|…и ещё {n} файлов
+	MCP tool not usable	Инструмент MCP нельзя использовать
+	This release's MCP tool can't be kept inside its work folder, so the server doesn't run it. A newer release of the app will work.	Инструмент MCP этой версии нельзя ограничить его рабочей папкой, поэтому сервер его не запускает. С более новой версией приложения всё заработает.
