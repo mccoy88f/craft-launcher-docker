@@ -344,7 +344,6 @@ filter	Installed	Instalados
 	Copied to the clipboard	Copiado para a área de transferência
 	Work folder	Pasta de trabalho
 	Space used	Espaço usado
-	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	Ele trabalha com os arquivos da pasta de trabalho no servidor, não com documentos abertos no navegador dos visitantes.
 	Turn on the MCP server	Ativar o servidor MCP
 	When off, no app can be reached, whatever its own switch says.	Desativado, nenhum aplicativo fica acessível, seja qual for o seu próprio interruptor.
 	Apps on MCP	Aplicativos no MCP
@@ -353,7 +352,6 @@ filter	Installed	Instalados
 	Turn an app on or off in its details.	Ative ou desative um aplicativo nos detalhes dele.
 	Delete files not changed for	Excluir arquivos sem alterações há
 	Never	Nunca
-	Space per app	Espaço por aplicativo
 	Sessions at once	Sessões simultâneas
 	Access tokens	Tokens de acesso
 	New token	Novo token
@@ -400,3 +398,19 @@ filter	Installed	Instalados
 	MCP on	MCP ativado
 	MCP off	MCP desativado
 	Sign in to change these.	Entre para alterá-los.
+	Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers.	Cada cliente (token) tem aqui sua própria pasta: ele trabalha nos arquivos dela, não nos documentos abertos no navegador dos visitantes.
+	Files	Arquivos
+	No files yet.	Nenhum arquivo ainda.
+	Earlier files (from before each client had its own folder)	Arquivos anteriores (de antes de cada cliente ter sua própria pasta)
+	A revoked token	Um token revogado
+	Add files…	Adicionar arquivos…
+	Delete	Excluir
+	Delete this file?	Excluir este arquivo?
+	deleted at the next clean-up	será excluído na próxima limpeza
+	kept	mantido
+	Space per client	Espaço por cliente
+	Let MCP clients download files from web addresses	Permitir que clientes MCP baixem arquivos de endereços da web
+	Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it.	Adiciona a ferramenta launcher_file_from_url: o servidor baixa um endereço https público para a pasta do cliente. Deixe desligado se não precisar.
+	Revoke it? Its files on the server are deleted too.	Revogar? Os arquivos dele no servidor também serão excluídos.
+@plural	deleted in {n} day|deleted in {n} days	será excluído em {n} dia|será excluído em {n} dias
+@plural	…and {n} more file|…and {n} more files	…e mais {n} arquivo|…e mais {n} arquivos

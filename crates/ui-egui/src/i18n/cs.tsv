@@ -324,7 +324,6 @@ filter	Installed	Nainstalováno
 	Copied to the clipboard	Zkopírováno do schránky
 	Work folder	Pracovní složka
 	Space used	Využité místo
-	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	Pracuje se soubory ve své pracovní složce na serveru, ne s dokumenty otevřenými v prohlížečích návštěvníků.
 	Turn on the MCP server	Zapnout server MCP
 	When off, no app can be reached, whatever its own switch says.	Když je vypnutý, žádná aplikace není dostupná, ať její vlastní přepínač ukazuje cokoli.
 	Apps on MCP	Aplikace v MCP
@@ -333,7 +332,6 @@ filter	Installed	Nainstalováno
 	Turn an app on or off in its details.	Aplikaci zapnete nebo vypnete v jejích podrobnostech.
 	Delete files not changed for	Mazat soubory beze změny déle než
 	Never	Nikdy
-	Space per app	Místo pro aplikaci
 	Sessions at once	Současných relací
 	Access tokens	Přístupové tokeny
 	New token	Nový token
@@ -380,3 +378,19 @@ filter	Installed	Nainstalováno
 	MCP on	MCP zapnuto
 	MCP off	MCP vypnuto
 	Sign in to change these.	Pro změny se přihlaste.
+	Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers.	Každý klient (token) v ní má vlastní složku: pracuje se soubory v ní, ne s dokumenty otevřenými v prohlížečích návštěvníků.
+	Files	Soubory
+	No files yet.	Zatím žádné soubory.
+	Earlier files (from before each client had its own folder)	Dřívější soubory (z doby, kdy klienti ještě neměli vlastní složky)
+	A revoked token	Odvolaný token
+	Add files…	Přidat soubory…
+	Delete	Smazat
+	Delete this file?	Smazat tento soubor?
+	deleted at the next clean-up	bude smazán při příštím úklidu
+	kept	ponechán
+	Space per client	Místo na klienta
+	Let MCP clients download files from web addresses	Povolit klientům MCP stahovat soubory z webových adres
+	Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it.	Přidá nástroj launcher_file_from_url: server stáhne veřejnou https adresu do složky klienta. Nezapínejte, pokud to nepotřebujete.
+	Revoke it? Its files on the server are deleted too.	Odvolat? Jeho soubory na serveru budou také smazány.
+@plural	deleted in {n} day|deleted in {n} days	bude smazán za {n} den|bude smazán za {n} dny|bude smazán za {n} dní
+@plural	…and {n} more file|…and {n} more files	…a {n} další soubor|…a {n} další soubory|…a {n} dalších souborů

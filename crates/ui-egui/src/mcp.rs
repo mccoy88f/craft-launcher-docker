@@ -4,7 +4,7 @@
 //! Nothing here shows unless the backend sent an [`McpState`] (a launcher server, to the page
 //! signed in as its administrator).
 
-use artcraft_launcher_core::hosted::{McpChange, McpState};
+use artcraft_launcher_core::hosted::{McpChange, McpFiles, McpState, PREVIOUS_FILES};
 use artcraft_launcher_core::protocol::Command;
 use egui::{RichText, Ui};
 
@@ -16,7 +16,7 @@ use crate::widgets::{self, Kind};
 
 /// The choices for deleting old files from a work folder, in days (0: never).
 const RETENTION_DAYS: [u32; 7] = [0, 1, 3, 7, 14, 30, 90];
-/// The choices for the space each app's work folder may use.
+/// The choices for the space each client's work folder may use.
 const QUOTAS: [u64; 7] = [512 << 20, 1 << 30, 2 << 30, 5 << 30, 10 << 30, 20 << 30, 50 << 30];
 const SESSIONS: [u32; 5] = [1, 2, 4, 8, 16];
 
@@ -107,16 +107,110 @@ impl LauncherUi {
             });
             ui.add(
                 egui::Label::new(
-                    RichText::new(tl!("It works on the files in its work folder on the server, not on documents open in visitors' browsers."))
-                        .size(12.0)
-                        .color(t.muted),
+                    RichText::new(tl!(
+                        "Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers."
+                    ))
+                    .size(12.0)
+                    .color(t.muted),
                 )
                 .wrap(),
             );
             if self.backend.signed_in() == Some(false) {
                 ui.label(RichText::new(tl!("Sign in to change these.")).size(12.0).color(t.muted));
+            } else {
+                self.mcp_files(ui, &mcp, &app.id, inner, t);
             }
         });
+    }
+
+    /// The administrator's view of an app's work folder: each client's files, to download,
+    /// delete, or add to.
+    fn mcp_files(&mut self, ui: &mut Ui, mcp: &McpState, app: &str, inner: f32, t: &Tokens) {
+        let groups: Vec<&McpFiles> = mcp.files.iter().filter(|g| g.app == app).collect();
+        // Clients with access but no folder yet can still be given files.
+        let mut empty: Vec<McpFiles> = Vec::new();
+        for token in mcp.tokens.iter().filter(|tk| tk.apps.as_ref().is_none_or(|l| l.iter().any(|a| a == app))) {
+            if !groups.iter().any(|g| g.client == token.id) {
+                empty.push(McpFiles { app: app.to_string(), client: token.id.clone(), name: token.name.clone(), ..McpFiles::default() });
+            }
+        }
+        ui.add_space(4.0);
+        widgets::hud(ui, tl!("Files"), t.faint);
+        if groups.is_empty() && empty.is_empty() {
+            ui.label(RichText::new(tl!("No files yet.")).size(12.5).color(t.muted));
+            return;
+        }
+        let now = self.backend.now();
+        let gap = ui.spacing().item_spacing.x;
+        for group in groups.into_iter().chain(empty.iter()) {
+            let who = if group.client == PREVIOUS_FILES {
+                tl!("Earlier files (from before each client had its own folder)").to_string()
+            } else if group.name.is_empty() {
+                tl!("A revoked token").to_string()
+            } else {
+                group.name.clone()
+            };
+            let upload = group.client != PREVIOUS_FILES && !group.name.is_empty();
+            let upload_w = if upload { widgets::button_width(ui, tl!("Add files…"), 0.0) + gap } else { 0.0 };
+            ui.horizontal(|ui| {
+                let title = format!("{who} · {}", widgets::human_bytes(group.used_bytes));
+                ui.allocate_ui_with_layout(
+                    egui::vec2((inner - upload_w).max(40.0), crate::theme::CONTROL_H),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.add(egui::Label::new(RichText::new(&title).color(t.ink_strong)).truncate()).on_hover_text(title.as_str());
+                    },
+                );
+                if upload && widgets::button(ui, tl!("Add files…"), Kind::Secondary, 0.0).clicked() {
+                    self.send(Command::McpUpload { app: app.to_string(), client: group.client.clone() });
+                }
+            });
+            for file in &group.files {
+                let key = format!("file:{app}/{}/{}", group.client, file.path);
+                let asking = self.mcp_confirm.as_deref() == Some(key.as_str());
+                let (first, second) = if asking { (tl!("Delete"), tl!("Cancel")) } else { (tl!("Download"), tl!("Delete")) };
+                let buttons = widgets::button_width(ui, first, 0.0) + widgets::button_width(ui, second, 0.0) + 2.0 * gap;
+                ui.horizontal(|ui| {
+                    ui.allocate_ui_with_layout(egui::vec2((inner - buttons).max(40.0), 34.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.add(egui::Label::new(RichText::new(&file.path).monospace().size(12.5).color(t.ink_strong)).truncate())
+                            .on_hover_text(file.path.as_str());
+                        let when = match file.expires {
+                            _ if asking => tl!("Delete this file?").to_string(),
+                            Some(at) if at > now => {
+                                tn(u64::try_from((at - now + 86_399) / 86_400).unwrap_or(1), "deleted in {n} day", "deleted in {n} days")
+                            }
+                            Some(_) => tl!("deleted at the next clean-up").to_string(),
+                            None => tl!("kept").to_string(),
+                        };
+                        ui.label(RichText::new(format!("{} · {when}", widgets::human_bytes(file.bytes))).size(11.5).color(if asking {
+                            t.warn
+                        } else {
+                            t.muted
+                        }));
+                    });
+                    if asking {
+                        if widgets::button(ui, tl!("Delete"), Kind::Danger, 0.0).clicked() {
+                            self.mcp_confirm = None;
+                            self.mcp_send(McpChange::DeleteFile { app: app.to_string(), client: group.client.clone(), path: file.path.clone() });
+                        }
+                        if widgets::button(ui, tl!("Cancel"), Kind::Secondary, 0.0).clicked() {
+                            self.mcp_confirm = None;
+                        }
+                    } else {
+                        if widgets::button(ui, tl!("Download"), Kind::Secondary, 0.0).clicked() {
+                            self.send(Command::McpDownload { app: app.to_string(), client: group.client.clone(), path: file.path.clone() });
+                        }
+                        if widgets::button(ui, tl!("Delete"), Kind::Secondary, 0.0).clicked() {
+                            self.mcp_confirm = Some(key.clone());
+                        }
+                    }
+                });
+            }
+            if group.more > 0 {
+                ui.label(RichText::new(tn(u64::from(group.more), "…and {n} more file", "…and {n} more files")).size(12.0).color(t.muted));
+            }
+        }
     }
 
     /// The account row at the top of Settings, on a launcher server.
@@ -213,7 +307,7 @@ impl LauncherUi {
         }
         let mut quota = mcp.quota_bytes;
         ui.horizontal(|ui| {
-            ui.label(tl!("Space per app"));
+            ui.label(tl!("Space per client"));
             egui::ComboBox::from_id_salt("mcp-quota").selected_text(widgets::human_bytes(quota)).width(120.0).show_ui(ui, |ui| {
                 for q in QUOTAS {
                     ui.selectable_value(&mut quota, q, widgets::human_bytes(q));
@@ -235,6 +329,20 @@ impl LauncherUi {
         if sessions != mcp.max_sessions {
             self.mcp_send(McpChange::MaxSessions { sessions });
         }
+        let mut from_url = mcp.file_from_url;
+        if ui.checkbox(&mut from_url, tl!("Let MCP clients download files from web addresses")).changed() {
+            self.mcp_send(McpChange::FileFromUrl { on: from_url });
+        }
+        ui.add(
+            egui::Label::new(
+                RichText::new(tl!(
+                    "Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it."
+                ))
+                .size(12.0)
+                .color(t.muted),
+            )
+            .wrap(),
+        );
         ui.add_space(10.0);
 
         ui.horizontal(|ui| {
@@ -274,11 +382,28 @@ impl LauncherUi {
                         ui.label(RichText::new(format!("…{} · {apps} · {used}{how}", token.hint)).size(12.0).color(t.muted));
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if widgets::button(ui, tl!("Revoke"), Kind::Danger, 0.0).clicked() {
-                            self.mcp_send(McpChange::RevokeToken { id: token.id.clone() });
+                        let key = format!("revoke:{}", token.id);
+                        if self.mcp_confirm.as_deref() == Some(key.as_str()) {
+                            if widgets::button(ui, tl!("Cancel"), Kind::Secondary, 0.0).clicked() {
+                                self.mcp_confirm = None;
+                            }
+                            if widgets::button(ui, tl!("Revoke"), Kind::Danger, 0.0).clicked() {
+                                self.mcp_confirm = None;
+                                self.mcp_send(McpChange::RevokeToken { id: token.id.clone() });
+                            }
+                        } else if widgets::button(ui, tl!("Revoke"), Kind::Danger, 0.0).clicked() {
+                            // A visitor goes to sign in; the administrator is asked once more.
+                            if self.backend.signed_in() == Some(false) {
+                                self.mcp_send(McpChange::RevokeToken { id: token.id.clone() });
+                            } else {
+                                self.mcp_confirm = Some(key);
+                            }
                         }
                     });
                 });
+                if self.mcp_confirm.as_deref() == Some(format!("revoke:{}", token.id).as_str()) {
+                    ui.label(RichText::new(tl!("Revoke it? Its files on the server are deleted too.")).size(12.0).color(t.warn));
+                }
             });
         }
         ui.add(

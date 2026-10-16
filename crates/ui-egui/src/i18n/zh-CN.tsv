@@ -324,7 +324,6 @@ figcraft	Interface design and prototyping	界面设计与原型制作
 	Copied to the clipboard	已复制到剪贴板
 	Work folder	工作文件夹
 	Space used	已用空间
-	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	它处理服务器上工作文件夹中的文件，而不是访客浏览器中打开的文档。
 	Turn on the MCP server	打开 MCP 服务器
 	When off, no app can be reached, whatever its own switch says.	关闭时，无论各应用自己的开关如何，都无法访问任何应用。
 	Apps on MCP	MCP 上的应用
@@ -333,7 +332,6 @@ figcraft	Interface design and prototyping	界面设计与原型制作
 	Turn an app on or off in its details.	在应用详情中打开或关闭它。
 	Delete files not changed for	删除多久未更改的文件
 	Never	从不
-	Space per app	每个应用的空间
 	Sessions at once	同时会话数
 	Access tokens	访问令牌
 	New token	新建令牌
@@ -380,3 +378,19 @@ figcraft	Interface design and prototyping	界面设计与原型制作
 	MCP on	MCP 已打开
 	MCP off	MCP 已关闭
 	Sign in to change these.	登录后才能更改。
+	Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers.	每个客户端（令牌）在其中都有自己的文件夹：它处理其中的文件，而不是访客浏览器中打开的文档。
+	Files	文件
+	No files yet.	还没有文件。
+	Earlier files (from before each client had its own folder)	早先的文件（每个客户端拥有自己文件夹之前的）
+	A revoked token	已撤销的令牌
+	Add files…	添加文件…
+	Delete	删除
+	Delete this file?	删除此文件？
+	deleted at the next clean-up	将在下次清理时删除
+	kept	保留
+	Space per client	每个客户端的空间
+	Let MCP clients download files from web addresses	允许 MCP 客户端从网址下载文件
+	Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it.	添加 launcher_file_from_url 工具：服务器将公开的 https 地址下载到客户端的文件夹中。如无需要请保持关闭。
+	Revoke it? Its files on the server are deleted too.	撤销它？它在服务器上的文件也会被删除。
+@plural	deleted in {n} day|deleted in {n} days	{n} 天后删除
+@plural	…and {n} more file|…and {n} more files	…还有 {n} 个文件

@@ -941,7 +941,7 @@ impl Backend for NativeBackend {
             Command::UpdateLauncher => self.update_launcher(),
             Command::FetchScreenshots { app } => self.fetch_screenshots(&app),
             // A launcher server's; the desktop has no MCP server of its own.
-            Command::Mcp(_) | Command::SignIn | Command::SignOut => {}
+            Command::Mcp(_) | Command::SignIn | Command::SignOut | Command::McpDownload { .. } | Command::McpUpload { .. } => {}
             Command::Configure(options) => {
                 let changed_pre = {
                     let mut o = self.shared.options.lock().unwrap_or_else(PoisonError::into_inner);

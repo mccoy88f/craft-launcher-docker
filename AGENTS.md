@@ -75,7 +75,12 @@ settings file must produce an error the user can act on, never a panic. Shared s
   `core::hosted` so the server and `artcraft-launcher-web` agree.
 - Its MCP server (`apps/artcraft-launcher-server/src/mcp.rs`) runs only `bin/<app>-cli` taken from
   the app's own Linux tarball (same release as the installed version, checksum-verified), with
-  the app's work folder as its only read and write root and a clean environment. Clients sign in
+  the client's own work folder (`<work>/<app>/<token id>`) as its only read and write root and a
+  clean environment; clients never see each other's folders, nor `previous/`. The launcher's own
+  MCP tools (`launcher_*`) resolve paths only inside that folder (no `..`, no links); download
+  links are random and expire after an hour; `launcher_file_from_url` is off unless the
+  administrator turns it on, fetches only https addresses whose every IP is public (each redirect
+  checked) and respects the quota. Clients sign in
   with access tokens stored as SHA-256 fingerprints and shown once; requests with a foreign
   `Origin` are refused. Never widen what it runs or the roots it grants. OAuth (`oauth.rs`) only
   issues those same tokens after the administrator signs in and allows the client: PKCE S256

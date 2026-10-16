@@ -57,6 +57,18 @@ pub enum Command {
     SignIn,
     /// End the administrator's session on a launcher server.
     SignOut,
+    /// Download a file of an MCP client's work folder on a launcher server (its administrator).
+    McpDownload {
+        app: String,
+        client: String,
+        path: String,
+    },
+    /// Pick files on this device and put them in an MCP client's work folder on a launcher
+    /// server (its administrator).
+    McpUpload {
+        app: String,
+        client: String,
+    },
 }
 
 /// Settings the backend needs.

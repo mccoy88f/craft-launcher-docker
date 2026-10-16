@@ -88,7 +88,7 @@ fn events() -> Vec<Event> {
 
 /// The MCP server as an administrator's page gets it: PhotoCraft on, one token.
 fn mcp_event() -> Event {
-    use artcraft_launcher_core::hosted::{McpApp, McpState, McpToken};
+    use artcraft_launcher_core::hosted::{McpApp, McpFile, McpFiles, McpState, McpToken};
     Event::Mcp(McpState {
         enabled: true,
         retention_days: 7,
@@ -115,6 +115,25 @@ fn mcp_event() -> Event {
             last_used: Some(NOW - 300),
             oauth: false,
         }],
+        file_from_url: false,
+        files: vec![
+            McpFiles {
+                app: "photocraft".into(),
+                client: "t1".into(),
+                name: "Claude Desktop".into(),
+                used_bytes: 2 << 20,
+                files: vec![McpFile { path: "scozziando.png".into(), bytes: 2 << 20, modified: NOW - 3600, expires: Some(NOW - 3600 + 7 * 86_400) }],
+                more: 0,
+            },
+            McpFiles {
+                app: "photocraft".into(),
+                client: "previous".into(),
+                name: String::new(),
+                used_bytes: 1 << 20,
+                files: vec![McpFile { path: "old/cover.png".into(), bytes: 1 << 20, modified: NOW - 6 * 86_400, expires: Some(NOW + 3600) }],
+                more: 0,
+            },
+        ],
     })
 }
 
@@ -215,4 +234,54 @@ fn a_new_token_is_shown_once() {
     h.get_by_label("I've copied the token").click();
     h.run_steps(4);
     assert!(h.query_by_label("acl_secret1234").is_none());
+}
+
+#[test]
+fn the_administrator_downloads_deletes_and_adds_a_clients_files() {
+    use artcraft_launcher_core::hosted::McpChange;
+    let mut events = events();
+    events.push(mcp_event());
+    let (mut h, sent) = harness_with(true, events);
+    h.get_by_label("PhotoCraft details").click();
+    h.run_steps(10);
+    h.get_by_label("MCP server ↓").click();
+    h.run_steps(4);
+    h.get_by_label("scozziando.png");
+    h.get_by_label_contains("deleted in 7 days");
+    h.get_by_label_contains("Earlier files");
+    h.get_by_label_contains("deleted in 1 day");
+    h.query_all_by_label("Download").next().unwrap().click();
+    h.run_steps(2);
+    assert!(sent.borrow().iter().any(|c| matches!(c, Command::McpDownload { client, path, .. } if client == "t1" && path == "scozziando.png")));
+    // Deleting asks once more.
+    h.query_all_by_label("Delete").next().unwrap().click();
+    h.run_steps(2);
+    h.get_by_label_contains("Delete this file?");
+    assert!(!sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::DeleteFile { .. }))));
+    h.query_all_by_label("Delete").next().unwrap().click();
+    h.run_steps(2);
+    assert!(sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::DeleteFile { path, .. }) if path == "scozziando.png")));
+    // The earlier files can't be added to; a client's folder can.
+    assert_eq!(h.query_all_by_label("Add files…").count(), 1);
+    h.get_by_label("Add files…").click();
+    h.run_steps(2);
+    assert!(sent.borrow().iter().any(|c| matches!(c, Command::McpUpload { client, .. } if client == "t1")));
+}
+
+#[test]
+fn revoking_a_token_asks_first_and_says_its_files_go() {
+    use artcraft_launcher_core::hosted::McpChange;
+    let mut events = events();
+    events.push(mcp_event());
+    let (mut h, sent) = harness_with(true, events);
+    h.get_by_label("Settings").click();
+    h.run_steps(4);
+    h.get_by_label("Let MCP clients download files from web addresses");
+    h.get_by_label("Revoke").click();
+    h.run_steps(2);
+    h.get_by_label_contains("Its files on the server are deleted too");
+    assert!(!sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::RevokeToken { .. }))));
+    h.get_by_label("Revoke").click();
+    h.run_steps(2);
+    assert!(sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::RevokeToken { id }) if id == "t1")));
 }

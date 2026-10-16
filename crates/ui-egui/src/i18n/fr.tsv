@@ -354,7 +354,6 @@ filter	Installed	Installées
 	Copied to the clipboard	Copié dans le presse-papiers
 	Work folder	Dossier de travail
 	Space used	Espace utilisé
-	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	Il travaille sur les fichiers de son dossier de travail sur le serveur, pas sur les documents ouverts dans le navigateur des visiteurs.
 	Turn on the MCP server	Activer le serveur MCP
 	When off, no app can be reached, whatever its own switch says.	Désactivé, aucune application n'est accessible, quel que soit son propre interrupteur.
 	Apps on MCP	Applications sur MCP
@@ -363,7 +362,6 @@ filter	Installed	Installées
 	Turn an app on or off in its details.	Activez ou désactivez une application depuis ses détails.
 	Delete files not changed for	Supprimer les fichiers inchangés depuis
 	Never	Jamais
-	Space per app	Espace par application
 	Sessions at once	Sessions simultanées
 	Access tokens	Jetons d'accès
 	New token	Nouveau jeton
@@ -410,3 +408,19 @@ filter	Installed	Installées
 	MCP on	MCP activé
 	MCP off	MCP désactivé
 	Sign in to change these.	Connectez-vous pour les modifier.
+	Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers.	Chaque client (jeton) y a son propre dossier : il travaille sur les fichiers qui s'y trouvent, pas sur les documents ouverts dans le navigateur des visiteurs.
+	Files	Fichiers
+	No files yet.	Aucun fichier pour l'instant.
+	Earlier files (from before each client had its own folder)	Fichiers antérieurs (d'avant que chaque client ait son propre dossier)
+	A revoked token	Un jeton révoqué
+	Add files…	Ajouter des fichiers…
+	Delete	Supprimer
+	Delete this file?	Supprimer ce fichier ?
+	deleted at the next clean-up	supprimé au prochain nettoyage
+	kept	conservé
+	Space per client	Espace par client
+	Let MCP clients download files from web addresses	Autoriser les clients MCP à télécharger des fichiers depuis des adresses web
+	Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it.	Ajoute l'outil launcher_file_from_url : le serveur télécharge une adresse https publique dans le dossier du client. Laissez désactivé si vous n'en avez pas besoin.
+	Revoke it? Its files on the server are deleted too.	Le révoquer ? Ses fichiers sur le serveur seront aussi supprimés.
+@plural	deleted in {n} day|deleted in {n} days	supprimé dans {n} jour|supprimé dans {n} jours
+@plural	…and {n} more file|…and {n} more files	…et {n} autre fichier|…et {n} autres fichiers

@@ -358,7 +358,6 @@ filter	Installed	Zainstalowane
 	Copied to the clipboard	Skopiowano do schowka
 	Work folder	Folder roboczy
 	Space used	Zajęte miejsce
-	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	Działa na plikach w swoim folderze roboczym na serwerze, a nie na dokumentach otwartych w przeglądarkach odwiedzających.
 	Turn on the MCP server	Włącz serwer MCP
 	When off, no app can be reached, whatever its own switch says.	Gdy jest wyłączony, żadna aplikacja nie jest dostępna, niezależnie od jej własnego przełącznika.
 	Apps on MCP	Aplikacje w MCP
@@ -367,7 +366,6 @@ filter	Installed	Zainstalowane
 	Turn an app on or off in its details.	Aplikację włączysz lub wyłączysz w jej szczegółach.
 	Delete files not changed for	Usuwaj pliki niezmieniane przez
 	Never	Nigdy
-	Space per app	Miejsce na aplikację
 	Sessions at once	Sesje jednocześnie
 	Access tokens	Tokeny dostępu
 	New token	Nowy token
@@ -414,3 +412,19 @@ filter	Installed	Zainstalowane
 	MCP on	MCP włączony
 	MCP off	MCP wyłączony
 	Sign in to change these.	Zaloguj się, aby to zmienić.
+	Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers.	Każdy klient (token) ma w nim własny folder: pracuje na plikach w nim, a nie na dokumentach otwartych w przeglądarkach odwiedzających.
+	Files	Pliki
+	No files yet.	Na razie brak plików.
+	Earlier files (from before each client had its own folder)	Wcześniejsze pliki (z czasów, gdy klienci nie mieli własnych folderów)
+	A revoked token	Unieważniony token
+	Add files…	Dodaj pliki…
+	Delete	Usuń
+	Delete this file?	Usunąć ten plik?
+	deleted at the next clean-up	zostanie usunięty przy najbliższym czyszczeniu
+	kept	zachowany
+	Space per client	Miejsce na klienta
+	Let MCP clients download files from web addresses	Pozwól klientom MCP pobierać pliki z adresów internetowych
+	Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it.	Dodaje narzędzie launcher_file_from_url: serwer pobiera publiczny adres https do folderu klienta. Nie włączaj, jeśli nie jest potrzebne.
+	Revoke it? Its files on the server are deleted too.	Unieważnić? Jego pliki na serwerze również zostaną usunięte.
+@plural	deleted in {n} day|deleted in {n} days	zostanie usunięty za {n} dzień|zostanie usunięty za {n} dni|zostanie usunięty za {n} dni
+@plural	…and {n} more file|…and {n} more files	…i {n} kolejny plik|…i {n} kolejne pliki|…i {n} kolejnych plików

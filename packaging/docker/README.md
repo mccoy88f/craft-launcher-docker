@@ -18,7 +18,7 @@ session. The sign-in and OAuth pages speak the language chosen in the launcher's
 page tells the server in an `artcraft_lang` cookie), else the browser's. Visitors see the access tokens' names, never even their last characters. Each app's
 details page has a folded **MCP server** button under Website, GitHub and Releases: it unfolds
 into the app's status (its browser version, whether its MCP tool is installed and whether MCP is
-on), its MCP address and its work folder. **Settings → On this server** lists the same for every
+on), its MCP address, its work folder and, for the administrator, each client's files. **Settings → On this server** lists the same for every
 installed app.
 
 ## Quick start
@@ -90,17 +90,35 @@ headers (Traefik and Caddy send them). If the sign-in page or the addresses in
 `/.well-known/oauth-authorization-server` show the wrong address, set `ARTCRAFT_PUBLIC_URL`
 (for example `https://launcher.example.com`).
 
-Each app works in its own folder, `/work/<app>` (the `launcher-work` volume), its only read and
-write root: it can't open or write files anywhere else. It works on the files there, not on the
-documents open in visitors' browsers. In Settings:
+Each client (a token, or a client that signed in with OAuth) has its own work folder in each app,
+`/work/<app>/<token id>` (the `launcher-work` volume): its sessions share it, it is the app's only
+read and write root, and no other client can see it. The app works on the files there, not on the
+documents open in visitors' browsers. Documents a client opens live in its session's memory until
+it saves them; a session unused for 30 minutes ends, and what wasn't saved is lost. Files from
+before folders were per client are in `/work/<app>/previous`, for the administrator only.
+
+The launcher adds tools of its own to each app's, and tells each client, when it connects (in the
+answer to `initialize`), how long files are kept and which of its files expire within two days, so
+it can warn its user:
+
+| Tool | What it does |
+|---|---|
+| `launcher_files_list` | The client's files: path, size, last change, and when each will be deleted. |
+| `launcher_file_link` | A link to download one file, valid for an hour (`/files/<random>/<name>`). |
+| `launcher_file_from_url` | Only when **Settings → Let MCP clients download files from web addresses** is on (it's off by default): the server downloads a public https address (up to 512 MB, within the client's space) into the client's folder. Addresses on this machine or the local network are refused, redirects included. |
+
+Signed in, the administrator sees every client's files under each app's **MCP server** button:
+**Download**, **Delete** (asked twice), and **Add files…** to put files from their device in a
+client's folder (up to 512 MB each), for instance a photo for the AI to work on. In Settings:
 
 | Setting | Default | What it does |
 |---|---|---|
 | Delete files not changed for | 7 days | Once a day, files not changed for that long are deleted (Never: kept). |
-| Space per app | 2 GB | Past it, the app's tool calls are refused with a message saying so, until the folder is emptied or the limit raised. |
+| Space per client | 2 GB | Past it, the client's tool calls are refused with a message saying so, until files are deleted or the limit raised. |
 | Sessions at once | 4 | MCP sessions running at the same time, across apps. A session nobody uses for 30 minutes ends. |
-| Empty | | Deletes everything in that app's folder (ending its sessions). |
+| Empty | | Deletes everything in that app's folder, every client's (ending its sessions). |
 
+**Revoke** (asked twice) ends a token's sessions and deletes its folders.
 Uninstalling an app deletes its work folder too (the uninstall prompt says so).
 
 The command-line tool runs inside the launcher's container, as its unprivileged user, with a

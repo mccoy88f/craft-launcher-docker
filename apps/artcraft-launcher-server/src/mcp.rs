@@ -7,9 +7,15 @@
 //! (progress, logs) reaches the client too when it accepts an event stream.
 //!
 //! Only the administrator turns the MCP server and each app's on, and makes the access tokens
-//! clients sign in with (stored as SHA-256 fingerprints, shown once). Work folders are emptied of
-//! files not changed for `retention_days`, and a tool call is refused while its folder holds more
-//! than the quota.
+//! clients sign in with (stored as SHA-256 fingerprints, shown once). Each client (a token, or an
+//! OAuth client's grant) has its own work folder in each app, `<work>/<app>/<token id>`: its
+//! sessions share it, and no other client sees it. Work folders are emptied of files not changed
+//! for `retention_days`, and a tool call is refused while the client's folder holds more than the
+//! quota.
+//!
+//! The launcher adds tools of its own to every app's (`launcher_*`): list the client's files, give
+//! a link to download one, and (when the administrator allows it) fetch one from a web address.
+//! The answer to `initialize` tells the client how long files are kept and which expire soon.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -18,7 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use artcraft_launcher_core::catalog::{CraftApp, SUITE};
-use artcraft_launcher_core::hosted::{McpApp, McpState, McpToken};
+use artcraft_launcher_core::hosted::{McpApp, McpFile, McpFiles, McpState, McpToken, PREVIOUS_FILES};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -40,6 +46,14 @@ const SIZE_FRESH: Duration = Duration::from_secs(30);
 const TOKEN_PREFIX: &str = "acl_";
 
 pub const RETENTION_CHOICES: [u32; 7] = [0, 1, 3, 7, 14, 30, 90];
+/// How long a download link a client asked for works.
+const LINK_LIFE: Duration = Duration::from_secs(3600);
+/// The most files listed per folder, on the page and to a client.
+const LIST_MAX: usize = 200;
+/// The biggest file `launcher_file_from_url` fetches, or the administrator uploads.
+pub const FILE_MAX: u64 = 512 << 20;
+/// Files expiring within this long are named in the answer to `initialize`.
+const EXPIRING_SOON: i64 = 2 * 24 * 3600;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct StoredToken {
@@ -134,6 +148,11 @@ struct Settings {
     /// Unix seconds of the last clean-up of old files.
     #[serde(default)]
     last_cleanup: i64,
+    #[serde(default)]
+    file_from_url: bool,
+    /// 1 once the files from before per-client folders were moved to [`PREVIOUS_FILES`].
+    #[serde(default)]
+    layout: u32,
 }
 
 fn default_retention() -> u32 {
@@ -157,6 +176,8 @@ impl Default for Settings {
             tokens: Vec::new(),
             clients: Vec::new(),
             last_cleanup: 0,
+            file_from_url: false,
+            layout: 1,
         }
     }
 }
@@ -231,7 +252,9 @@ pub struct Mcp {
     work_root: PathBuf,
     settings: Mutex<Settings>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
-    sizes: Mutex<HashMap<&'static str, (u64, Instant)>>,
+    sizes: Mutex<HashMap<PathBuf, (u64, Instant)>>,
+    /// Download links handed to clients: the file, and until when.
+    links: Mutex<HashMap<String, (PathBuf, Instant)>>,
     dirty: AtomicBool,
     codes: Mutex<HashMap<String, AuthCode>>,
     /// Client metadata documents read lately, by client id.
@@ -242,17 +265,45 @@ impl Mcp {
     pub fn open(data: &Path, work_root: PathBuf) -> Result<Self, String> {
         std::fs::create_dir_all(&work_root).map_err(|e| format!("couldn't create {} ({e})", work_root.display()))?;
         let settings_path = data.join("mcp.json");
-        let settings = std::fs::read(&settings_path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Ok(Self {
+        let saved = std::fs::read(&settings_path).ok();
+        // Settings saved before `layout` existed come in with 0 (its serde default); a new
+        // installation starts at 1.
+        let settings: Settings = saved.as_deref().and_then(|b| serde_json::from_slice(b).ok()).unwrap_or_default();
+        let this = Self {
             settings_path,
             work_root,
             settings: Mutex::new(settings),
             sessions: Mutex::default(),
             sizes: Mutex::default(),
+            links: Mutex::default(),
             dirty: AtomicBool::new(false),
             codes: Mutex::default(),
             documents: Mutex::default(),
-        })
+        };
+        if this.settings().layout < 1 {
+            this.move_to_previous();
+            this.settings().layout = 1;
+            this.save();
+        }
+        Ok(this)
+    }
+
+    /// Files from when every client shared the app's folder go to [`PREVIOUS_FILES`], which the
+    /// administrator can download and no client sees.
+    fn move_to_previous(&self) {
+        for app in &SUITE {
+            let dir = self.work_dir(app.id);
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            let previous = dir.join(PREVIOUS_FILES);
+            for e in entries.flatten() {
+                if e.file_name() == PREVIOUS_FILES {
+                    continue;
+                }
+                if let Err(err) = std::fs::create_dir_all(&previous).and_then(|()| std::fs::rename(e.path(), previous.join(e.file_name()))) {
+                    log::warn!("couldn't move {} to {} ({err})", e.path().display(), previous.display());
+                }
+            }
+        }
     }
 
     fn settings(&self) -> std::sync::MutexGuard<'_, Settings> {
@@ -272,6 +323,74 @@ impl Mcp {
 
     pub fn work_dir(&self, app: &str) -> PathBuf {
         self.work_root.join(app)
+    }
+
+    /// A client's work folder in an app. `client` is a token's id (URL-safe base64) or
+    /// [`PREVIOUS_FILES`].
+    pub fn client_dir(&self, app: &str, client: &str) -> Option<PathBuf> {
+        let plain = !client.is_empty() && client.len() <= 32 && client.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        plain.then(|| self.work_dir(app).join(client))
+    }
+
+    /// A file in a client's folder, from a path relative to it; `None` for a path reaching out of
+    /// it (`..`, absolute paths, links).
+    pub fn file_path(&self, app: &str, client: &str, path: &str) -> Option<PathBuf> {
+        let dir = self.client_dir(app, client)?;
+        let path = path.trim_start_matches("./");
+        let relative = Path::new(path);
+        let plain = !path.is_empty()
+            && path.len() <= 1024
+            && relative.components().all(|c| matches!(c, std::path::Component::Normal(_)))
+            && !path.contains('\\');
+        if !plain {
+            return None;
+        }
+        let full = dir.join(relative);
+        // Nothing on the way may be a link (to somewhere else).
+        let mut at = dir.clone();
+        for c in relative.components() {
+            at.push(c);
+            if std::fs::symlink_metadata(&at).is_ok_and(|m| m.file_type().is_symlink()) {
+                return None;
+            }
+        }
+        Some(full)
+    }
+
+    /// The files in a client's folder, newest first (at most [`LIST_MAX`]), and how many more.
+    pub fn files(&self, app: &str, client: &str) -> (Vec<McpFile>, u32) {
+        let Some(dir) = self.client_dir(app, client) else { return (Vec::new(), 0) };
+        let days = self.settings().retention_days;
+        let mut files = Vec::new();
+        list_files(&dir, "", &mut files, 0);
+        files.sort_by(|a: &McpFile, b| b.modified.cmp(&a.modified).then_with(|| a.path.cmp(&b.path)));
+        // The previous files are kept as long as the others.
+        if days > 0 {
+            for f in &mut files {
+                f.expires = Some(f.modified + i64::from(days) * 24 * 3600);
+            }
+        }
+        let more = u32::try_from(files.len().saturating_sub(LIST_MAX)).unwrap_or(u32::MAX);
+        files.truncate(LIST_MAX);
+        (files, more)
+    }
+
+    /// Every client's folder in every app, for the administrator.
+    fn all_files(&self, tokens: &[StoredToken]) -> Vec<McpFiles> {
+        let mut out = Vec::new();
+        for app in &SUITE {
+            let Ok(entries) = std::fs::read_dir(self.work_dir(app.id)) else { continue };
+            let mut clients: Vec<String> =
+                entries.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).filter_map(|e| e.file_name().into_string().ok()).collect();
+            clients.sort();
+            for client in clients {
+                let Some(dir) = self.client_dir(app.id, &client) else { continue };
+                let (files, more) = self.files(app.id, &client);
+                let name = tokens.iter().find(|t| t.id == client).map(|t| t.name.clone()).unwrap_or_default();
+                out.push(McpFiles { app: app.id.to_string(), client, name, used_bytes: self.used_at(&dir), files, more });
+            }
+        }
+        out
     }
 
     /// Whether the app's MCP server is on (so updates fetch its tool too).
@@ -297,7 +416,7 @@ impl Mcp {
                     enabled: s.apps.contains(a.id),
                     ready: hosting.cli(a.id).is_some(),
                     work_dir: self.work_dir(a.id).display().to_string(),
-                    used_bytes: self.used(a.id),
+                    used_bytes: self.used_at(&self.work_dir(a.id)),
                     sessions: u32::try_from(sessions.iter().filter(|x| **x == a.id).count()).unwrap_or(u32::MAX),
                 })
                 .collect(),
@@ -314,23 +433,226 @@ impl Mcp {
                     oauth: t.grant.is_some(),
                 })
                 .collect(),
+            file_from_url: s.file_from_url,
+            files: if admin { self.all_files(&s.tokens) } else { Vec::new() },
         }
     }
 
-    /// Bytes in an app's work folder, measured at most every half minute.
-    fn used(&self, app: &'static str) -> u64 {
-        if let Some((bytes, at)) = self.sizes.lock().unwrap_or_else(PoisonError::into_inner).get(app)
+    /// Bytes in a folder, measured at most every half minute.
+    fn used_at(&self, dir: &Path) -> u64 {
+        if let Some((bytes, at)) = self.sizes.lock().unwrap_or_else(PoisonError::into_inner).get(dir)
             && at.elapsed() < SIZE_FRESH
         {
             return *bytes;
         }
-        let bytes = dir_size(&self.work_dir(app));
-        self.sizes.lock().unwrap_or_else(PoisonError::into_inner).insert(app, (bytes, Instant::now()));
+        let bytes = dir_size(dir);
+        self.sizes.lock().unwrap_or_else(PoisonError::into_inner).insert(dir.to_path_buf(), (bytes, Instant::now()));
         bytes
     }
 
-    fn forget_size(&self, app: &str) {
-        self.sizes.lock().unwrap_or_else(PoisonError::into_inner).remove(app);
+    /// Forgets the measured sizes (something was written or deleted).
+    fn forget_sizes(&self) {
+        self.sizes.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
+
+    pub fn set_file_from_url(&self, on: bool) {
+        self.settings().file_from_url = on;
+        self.save();
+    }
+
+    /// Deletes one file of a client's folder (the administrator).
+    pub fn delete_file(&self, app: &CraftApp, client: &str, path: &str) -> Result<(), String> {
+        let file = self.file_path(app.id, client, path).ok_or("no such file")?;
+        if !file.is_file() {
+            return Err("no such file".into());
+        }
+        std::fs::remove_file(&file).map_err(|e| format!("couldn't delete {path} ({e})"))?;
+        self.forget_sizes();
+        log::info!("{}: deleted {path} from an MCP work folder", app.name);
+        Ok(())
+    }
+
+    /// Saves a file into a client's folder (the administrator's upload), replacing one of the
+    /// same name; the client's quota still applies.
+    pub fn save_file(&self, app: &CraftApp, client: &str, path: &str, bytes: &[u8]) -> Result<(), String> {
+        if client == PREVIOUS_FILES || !self.settings().tokens.iter().any(|t| t.id == client) {
+            return Err("no such client".into());
+        }
+        let file = self.file_path(app.id, client, path).ok_or("that file name can't be used")?;
+        let quota = self.settings().quota_bytes;
+        let dir = self.client_dir(app.id, client).ok_or("no such client")?;
+        let replaced = std::fs::metadata(&file).map_or(0, |m| m.len());
+        if dir_size(&dir).saturating_sub(replaced) + bytes.len() as u64 > quota {
+            return Err(format!("it doesn't fit in the client's space ({} MB)", quota >> 20));
+        }
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("couldn't create {} ({e})", parent.display()))?;
+        }
+        artcraft_launcher_native::paths::write_atomic(&file, bytes).map_err(|e| format!("couldn't save {path} ({e})"))?;
+        self.forget_sizes();
+        Ok(())
+    }
+
+    /// A download link for a file of a client's folder: its id, working for [`LINK_LIFE`].
+    fn new_link(&self, file: PathBuf) -> Result<String, String> {
+        let id = random_text(24)?;
+        let mut links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
+        links.retain(|_, (_, until)| *until > Instant::now());
+        if links.len() >= 1000 {
+            return Err("too many download links: try again in an hour".into());
+        }
+        links.insert(id.clone(), (file, Instant::now() + LINK_LIFE));
+        Ok(id)
+    }
+
+    /// The file a download link names, while it works.
+    pub fn link(&self, id: &str) -> Option<PathBuf> {
+        let links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
+        links.get(id).filter(|(_, until)| *until > Instant::now()).map(|(f, _)| f.clone())
+    }
+
+    /// What the launcher adds to the app's answer to `initialize`: where the client's files are,
+    /// how long they're kept and which expire soon, so the client can tell its user.
+    pub fn instructions(&self, app: &str, client: &str) -> String {
+        let (days, quota, from_url) = {
+            let s = self.settings();
+            (s.retention_days, s.quota_bytes, s.file_from_url)
+        };
+        let (files, more) = self.files(app, client);
+        let used = self.client_dir(app, client).map_or(0, |d| dir_size(&d));
+        let mut text = String::from(
+            "ArtCraft Launcher server: this connection has a work folder of its own on the server (paths are relative to it; \
+             other connections can't see it). ",
+        );
+        text.push_str(&format!("It holds {} files, {} MB of {} MB. ", files.len() + more as usize, used >> 20, quota >> 20));
+        if days == 0 {
+            text.push_str("Files are kept until the administrator deletes them. ");
+        } else {
+            text.push_str(&format!("Files not changed for {days} days are deleted automatically. "));
+            let soon = artcraft_launcher_native::now() + EXPIRING_SOON;
+            let expiring: Vec<String> = files
+                .iter()
+                .filter(|f| f.expires.is_some_and(|e| e <= soon))
+                .take(20)
+                .map(|f| format!("{} ({})", f.path, date(f.expires.unwrap_or(0))))
+                .collect();
+            if !expiring.is_empty() {
+                text.push_str(&format!(
+                    "Expiring within two days, unless changed: {}. Tell the user, so they can download what they want to keep. ",
+                    expiring.join(", ")
+                ));
+            }
+        }
+        text.push_str(&format!(
+            "Documents opened with the app's tools live in this session's memory: save them into the folder to keep them. \
+             A session unused for {} minutes ends, and what wasn't saved is lost. ",
+            IDLE.as_secs() / 60
+        ));
+        text.push_str(
+            "Tools: launcher_files_list lists the files with the date each expires; launcher_file_link gives a link (valid one hour) \
+             the user can open to download a file — give it to them when they want a result.",
+        );
+        if from_url {
+            text.push_str(" launcher_file_from_url downloads a file from a web address into the folder, to work on it.");
+        }
+        text
+    }
+
+    /// The launcher's own tools, added to each app's.
+    pub fn launcher_tools(&self) -> Vec<Value> {
+        let mut tools = vec![
+            serde_json::json!({
+                "name": "launcher_files_list",
+                "description": "Lists the files in this connection's work folder on the ArtCraft Launcher server: path, size, last change and when it will be deleted automatically.",
+                "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+                "annotations": {"readOnlyHint": true}
+            }),
+            serde_json::json!({
+                "name": "launcher_file_link",
+                "description": "Gives a link to download a file of this connection's work folder, valid for one hour. Give it to the user so they can save the file.",
+                "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "The file's path, relative to the work folder."}}, "required": ["path"], "additionalProperties": false},
+                "annotations": {"readOnlyHint": true}
+            }),
+        ];
+        if self.settings().file_from_url {
+            tools.push(serde_json::json!({
+                "name": "launcher_file_from_url",
+                "description": format!("Downloads a file from a public https address into this connection's work folder (at most {} MB), to open it with the app's tools.", FILE_MAX >> 20),
+                "inputSchema": {"type": "object", "properties": {
+                    "url": {"type": "string", "description": "A public https address."},
+                    "path": {"type": "string", "description": "Where to save it, relative to the work folder (default: the address's file name)."}
+                }, "required": ["url"], "additionalProperties": false}
+            }));
+        }
+        tools
+    }
+
+    /// Runs one of the launcher's tools for a client; the `tools/call` result.
+    pub async fn call_launcher_tool(
+        self: &Arc<Self>,
+        http: &artcraft_launcher_native::http::Http,
+        app: &'static str,
+        client: &str,
+        name: &str,
+        args: &Value,
+        base: &str,
+    ) -> Value {
+        let text = |t: String, error: bool| serde_json::json!({"content": [{"type": "text", "text": t}], "isError": error});
+        let arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").trim().to_string();
+        match name {
+            "launcher_files_list" => {
+                let (files, more) = self.files(app, client);
+                let quota = self.settings().quota_bytes;
+                let used = self.client_dir(app, client).map_or(0, |d| dir_size(&d));
+                let list: Vec<Value> = files
+                    .iter()
+                    .map(|f| serde_json::json!({"path": f.path, "bytes": f.bytes, "modified": date(f.modified), "expires": f.expires.map(date)}))
+                    .collect();
+                let answer = serde_json::json!({"files": list, "more": more, "used_bytes": used, "quota_bytes": quota});
+                text(answer.to_string(), false)
+            }
+            "launcher_file_link" => {
+                let path = arg("path");
+                match self.file_path(app, client, &path).filter(|f| f.is_file()) {
+                    Some(file) => match self.new_link(file) {
+                        Ok(id) => text(format!("{base}/files/{id}/{}", url_name(&path)), false),
+                        Err(e) => text(e, true),
+                    },
+                    None => text(format!("there's no file {path} in the work folder (launcher_files_list lists them)"), true),
+                }
+            }
+            "launcher_file_from_url" if self.settings().file_from_url => {
+                let url = arg("url");
+                let path = match arg("path") {
+                    p if p.is_empty() => url.split(['?', '#']).next().unwrap_or("").rsplit('/').next().unwrap_or("").to_string(),
+                    p => p,
+                };
+                let Some(file) = self.file_path(app, client, &path) else {
+                    return text("give a file name (path) to save it as".into(), true);
+                };
+                let Some(dir) = self.client_dir(app, client) else { return text("no work folder".into(), true) };
+                let quota = self.settings().quota_bytes;
+                let room = quota.saturating_sub(dir_size(&dir)).min(FILE_MAX);
+                let (http, fetch_url) = (http.clone(), url.clone());
+                let got = tokio::task::spawn_blocking(move || http.get_checked(&fetch_url, room, &public_address)).await;
+                match got.map_err(|e| e.to_string()).and_then(|r| r) {
+                    Ok(bytes) => {
+                        let saved = file
+                            .parent()
+                            .map_or(Ok(()), std::fs::create_dir_all)
+                            .map_err(|e| e.to_string())
+                            .and_then(|()| artcraft_launcher_native::paths::write_atomic(&file, &bytes).map_err(|e| e.to_string()));
+                        self.forget_sizes();
+                        match saved {
+                            Ok(()) => text(format!("saved {path} ({} bytes)", bytes.len()), false),
+                            Err(e) => text(format!("couldn't save {path} ({e})"), true),
+                        }
+                    }
+                    Err(e) => text(format!("couldn't download {url}: {e}"), true),
+                }
+            }
+            _ => text(format!("no such tool: {name}"), true),
+        }
     }
 
     pub fn set_enabled(&self, on: bool) {
@@ -382,12 +704,12 @@ impl Mcp {
         Ok(())
     }
 
-    /// Deletes everything in an app's work folder, ending its sessions first.
+    /// Deletes everything in an app's work folder (every client's), ending its sessions first.
     pub fn empty(&self, app: &CraftApp) -> Result<(), String> {
         self.close_where(|s| s.app == app.id);
         let dir = self.work_dir(app.id);
         empty_dir(&dir)?;
-        self.forget_size(app.id);
+        self.forget_sizes();
         log::info!("{}: MCP work folder emptied", app.name);
         Ok(())
     }
@@ -403,7 +725,7 @@ impl Mcp {
         {
             log::warn!("couldn't remove {} ({e})", dir.display());
         }
-        self.forget_size(app.id);
+        self.forget_sizes();
     }
 
     /// Makes a token; returns its secret, which is never shown again.
@@ -439,10 +761,23 @@ impl Mcp {
         Ok(secret)
     }
 
+    /// Revokes a token: its sessions end, and its work folders go (the page asks first).
     pub fn revoke_token(&self, id: &str) {
         self.settings().tokens.retain(|t| t.id != id);
         self.save();
         self.close_where(|s| s.token == id);
+        if id == PREVIOUS_FILES {
+            return;
+        }
+        for app in &SUITE {
+            if let Some(dir) = self.client_dir(app.id, id)
+                && dir.exists()
+                && let Err(e) = std::fs::remove_dir_all(&dir)
+            {
+                log::warn!("couldn't remove {} ({e})", dir.display());
+            }
+        }
+        self.forget_sizes();
     }
 
     /// Who may use `app`: the id of the token the request signs in with.
@@ -491,11 +826,10 @@ impl Mcp {
         }
     }
 
-    /// Whether the app's work folder is over its quota (checked before each tool call).
-    pub fn over_quota(&self, app: &'static str) -> Option<(u64, u64)> {
+    /// Whether a client's work folder is over the quota (checked before each tool call).
+    pub fn over_quota(&self, app: &'static str, client: &str) -> Option<(u64, u64)> {
         let quota = self.settings().quota_bytes;
-        self.forget_size(app);
-        let used = self.used(app);
+        let used = dir_size(&self.client_dir(app, client)?);
         (used > quota).then_some((used, quota))
     }
 
@@ -505,7 +839,7 @@ impl Mcp {
         if self.sessions.lock().unwrap_or_else(PoisonError::into_inner).len() >= max {
             return Err(format!("{max} MCP sessions are running already; try again later"));
         }
-        let dir = self.work_dir(app.id);
+        let dir = self.client_dir(app.id, &token).ok_or("no work folder for this token")?;
         std::fs::create_dir_all(&dir).map_err(|e| format!("couldn't create {} ({e})", dir.display()))?;
         let mut child = tokio::process::Command::new(cli)
             .arg("mcp")
@@ -745,7 +1079,7 @@ impl Mcp {
                 let removed = remove_older(&self.work_dir(app.id), cutoff, true);
                 if removed > 0 {
                     log::info!("{}: removed {removed} MCP work files older than {days} days", app.name);
-                    self.forget_size(app.id);
+                    self.forget_sizes();
                 }
             }
             self.settings().last_cleanup = now;
@@ -827,6 +1161,107 @@ fn random_text(n: usize) -> Result<String, String> {
     let mut bytes = vec![0u8; n];
     getrandom::fill(&mut bytes).map_err(|e| format!("no randomness available ({e})"))?;
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
+/// Adds the files under `dir` to `out`, with paths starting with `prefix` (links aren't
+/// followed, and no deeper than 16 folders).
+fn list_files(dir: &Path, prefix: &str, out: &mut Vec<McpFile>, depth: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let Ok(name) = e.file_name().into_string() else { continue };
+        let path = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+        match e.file_type() {
+            Ok(t) if t.is_dir() && depth < 16 => list_files(&e.path(), &path, out, depth + 1),
+            Ok(t) if t.is_file() => {
+                let meta = e.metadata().ok();
+                let modified = meta
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+                out.push(McpFile { path, bytes: meta.map_or(0, |m| m.len()), modified, expires: None });
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Unix seconds as an RFC 3339 date and time, in UTC.
+fn date(secs: i64) -> String {
+    let days = secs.div_euclid(86400);
+    let rest = secs.rem_euclid(86400);
+    // Howard Hinnant's days-from-civil, backwards.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rest / 3600, rest % 3600 / 60, rest % 60)
+}
+
+/// The last part of a path, for the end of a download link (so it's saved under that name).
+fn url_name(path: &str) -> String {
+    artcraft_launcher_core::hosted::url_component(path.rsplit('/').next().unwrap_or(path))
+}
+
+/// Whether `url` may be fetched for a client: https, to a host whose every address is public (not
+/// this machine, the local network, or the cloud's metadata service).
+fn public_address(url: &str) -> Result<(), String> {
+    let rest = url.strip_prefix("https://").ok_or("only https addresses are fetched")?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return Err("addresses with a user name aren't fetched".into());
+    }
+    // `host`, `host:port`, `[v6]` or `[v6]:port`.
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(v6) => {
+            let (host, after) = v6.split_once(']').ok_or("a bad address")?;
+            (host, after.strip_prefix(':'))
+        }
+        None => match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        },
+    };
+    let port = port.map_or(Ok(443), str::parse::<u16>).map_err(|_| "a bad port")?;
+    if host.is_empty() {
+        return Err("an address without a host".into());
+    }
+    use std::net::ToSocketAddrs;
+    let addresses: Vec<std::net::SocketAddr> = (host, port).to_socket_addrs().map_err(|e| format!("couldn't find {host} ({e})"))?.collect();
+    if addresses.is_empty() || addresses.iter().any(|a| !public_ip(a.ip())) {
+        return Err(format!("{host} isn't a public address"));
+    }
+    Ok(())
+}
+
+fn public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            !(v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || a == 0
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 198 && (18..20).contains(&b))
+                || a >= 224)
+        }
+        std::net::IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return public_ip(std::net::IpAddr::V4(v4));
+            }
+            let first = v6.segments()[0];
+            !(v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80)
+        }
+    }
 }
 
 /// Bytes of the files under `dir` (links aren't followed).
@@ -961,6 +1396,79 @@ mod tests {
         assert_eq!(remove_older(dir.path(), past, true), 0);
         empty_dir(dir.path()).unwrap();
         assert_eq!(dir_size(dir.path()), 0);
+    }
+
+    #[test]
+    fn each_client_has_its_own_folder_and_the_old_files_go_to_previous() {
+        let dir = tempfile::tempdir().unwrap();
+        // Files from when clients shared the app's folder, and settings from before `layout`.
+        std::fs::create_dir_all(dir.path().join("work/photocraft/out")).unwrap();
+        std::fs::write(dir.path().join("work/photocraft/cover.png"), b"png").unwrap();
+        std::fs::write(dir.path().join("work/photocraft/out/a.pcraft"), b"pc").unwrap();
+        std::fs::write(dir.path().join("mcp.json"), br#"{"enabled": true}"#).unwrap();
+        let mcp = Mcp::open(dir.path(), dir.path().join("work")).unwrap();
+        assert!(dir.path().join("work/photocraft/previous/cover.png").is_file());
+        assert!(dir.path().join("work/photocraft/previous/out/a.pcraft").is_file());
+        assert!(!dir.path().join("work/photocraft/cover.png").exists());
+
+        mcp.create_token("Claude", None).unwrap();
+        let id = mcp.settings().tokens[0].id.clone();
+        let app = CraftApp::by_id("photocraft").unwrap();
+        mcp.save_file(app, &id, "in/edinburgh.jpg", b"jpeg").unwrap();
+        assert!(mcp.save_file(app, PREVIOUS_FILES, "x.png", b"x").is_err(), "nobody adds to the previous files");
+        assert!(mcp.save_file(app, "nobody", "x.png", b"x").is_err());
+        let (files, more) = mcp.files("photocraft", &id);
+        assert_eq!((files.len(), more), (1, 0));
+        assert_eq!(files[0].path, "in/edinburgh.jpg");
+        assert_eq!(files[0].expires, Some(files[0].modified + 7 * 24 * 3600));
+
+        let state =
+            mcp.state(&crate::hosting::Hosting::open(dir.path(), artcraft_launcher_native::http::Http::new().unwrap()).unwrap(), "mcp/", true);
+        let groups: Vec<(&str, &str)> = state.files.iter().map(|g| (g.client.as_str(), g.name.as_str())).collect();
+        assert!(groups.contains(&(id.as_str(), "Claude")) && groups.contains(&(PREVIOUS_FILES, "")));
+        assert!(mcp.instructions("photocraft", &id).contains("1 files"));
+
+        // Revoking a token deletes its folders.
+        mcp.revoke_token(&id);
+        assert!(!dir.path().join("work/photocraft").join(&id).exists());
+        assert!(dir.path().join("work/photocraft/previous/cover.png").is_file());
+        mcp.delete_file(app, PREVIOUS_FILES, "cover.png").unwrap();
+        assert!(!dir.path().join("work/photocraft/previous/cover.png").exists());
+    }
+
+    #[test]
+    fn paths_stay_inside_the_clients_folder() {
+        let (dir, mcp) = mcp();
+        assert!(mcp.file_path("photocraft", "abc", "a/b.png").is_some());
+        for bad in ["", "../x", "a/../../x", "/etc/passwd", "a\\..\\x"] {
+            assert!(mcp.file_path("photocraft", "abc", bad).is_none(), "{bad}");
+        }
+        assert!(mcp.client_dir("photocraft", "../x").is_none());
+        assert!(mcp.client_dir("photocraft", "").is_none());
+        #[cfg(unix)]
+        {
+            std::fs::create_dir_all(dir.path().join("work/photocraft/abc")).unwrap();
+            std::os::unix::fs::symlink("/etc", dir.path().join("work/photocraft/abc/etc")).unwrap();
+            assert!(mcp.file_path("photocraft", "abc", "etc/passwd").is_none());
+        }
+    }
+
+    #[test]
+    fn dates_and_addresses() {
+        assert_eq!(date(0), "1970-01-01T00:00:00Z");
+        assert_eq!(date(1_792_108_800), "2026-10-16T00:00:00Z");
+        assert_eq!(date(951_782_400 + 3661), "2000-02-29T01:01:01Z");
+        for private in
+            ["127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.1", "169.254.169.254", "100.64.0.1", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1"]
+        {
+            assert!(!public_ip(private.parse().unwrap()), "{private}");
+        }
+        assert!(public_ip("1.1.1.1".parse().unwrap()) && public_ip("2606:4700::1111".parse().unwrap()));
+        assert!(public_address("http://example.com/a").is_err());
+        assert!(public_address("https://127.0.0.1/a").is_err());
+        assert!(public_address("https://[::1]:8443/a").is_err());
+        assert!(public_address("https://user@1.1.1.1/a").is_err());
+        assert!(public_address("https://1.1.1.1:443/a.png").is_ok());
     }
 
     #[test]

@@ -154,6 +154,8 @@ pub struct LauncherUi {
     pub(crate) token_form: crate::mcp::TokenForm,
     /// The MCP box on the details page is unfolded.
     pub(crate) mcp_open: bool,
+    /// What waits for a second click on the MCP page: `revoke:<token>` or `file:<app>/<client>/<path>`.
+    pub(crate) mcp_confirm: Option<String>,
 }
 
 /// The language to draw in: the preference, or English where it needs a CJK font the system
@@ -214,6 +216,7 @@ impl LauncherUi {
             mcp: None,
             token_form: crate::mcp::TokenForm::default(),
             mcp_open: false,
+            mcp_confirm: None,
         }
     }
 

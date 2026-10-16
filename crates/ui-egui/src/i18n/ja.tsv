@@ -359,7 +359,6 @@ filter	Installed	インストール済み
 	Copied to the clipboard	クリップボードにコピーしました
 	Work folder	作業フォルダー
 	Space used	使用容量
-	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	サーバー上の作業フォルダー内のファイルを扱います。訪問者のブラウザーで開かれているドキュメントは扱いません。
 	Turn on the MCP server	MCPサーバーをオンにする
 	When off, no app can be reached, whatever its own switch says.	オフのときは、各アプリのスイッチに関係なく、どのアプリにもアクセスできません。
 	Apps on MCP	MCPで公開中のアプリ
@@ -368,7 +367,6 @@ filter	Installed	インストール済み
 	Turn an app on or off in its details.	アプリのオン・オフは詳細画面で切り替えます。
 	Delete files not changed for	変更のないファイルを削除するまでの期間
 	Never	削除しない
-	Space per app	アプリごとの容量
 	Sessions at once	同時セッション数
 	Access tokens	アクセストークン
 	New token	新しいトークン
@@ -415,3 +413,19 @@ filter	Installed	インストール済み
 	MCP on	MCPオン
 	MCP off	MCPオフ
 	Sign in to change these.	変更するにはサインインしてください。
+	Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers.	クライアント（トークン）ごとに専用のフォルダーがあります。そのフォルダー内のファイルを扱い、訪問者のブラウザーで開いている文書は扱いません。
+	Files	ファイル
+	No files yet.	まだファイルはありません。
+	Earlier files (from before each client had its own folder)	以前のファイル（クライアントごとのフォルダーができる前のもの）
+	A revoked token	取り消されたトークン
+	Add files…	ファイルを追加…
+	Delete	削除
+	Delete this file?	このファイルを削除しますか？
+	deleted at the next clean-up	次回のクリーンアップで削除
+	kept	保持
+	Space per client	クライアントごとの容量
+	Let MCP clients download files from web addresses	MCP クライアントにウェブアドレスからのファイルのダウンロードを許可
+	Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it.	launcher_file_from_url ツールを追加します。サーバーが公開 https アドレスをクライアントのフォルダーにダウンロードします。必要なとき以外はオフにしてください。
+	Revoke it? Its files on the server are deleted too.	取り消しますか？サーバー上のファイルも削除されます。
+@plural	deleted in {n} day|deleted in {n} days	{n}日後に削除
+@plural	…and {n} more file|…and {n} more files	…ほか {n} 個のファイル

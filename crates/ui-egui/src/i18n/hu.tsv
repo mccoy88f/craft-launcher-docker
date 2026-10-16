@@ -357,7 +357,6 @@ filter	Installed	Telepítve
 	Copied to the clipboard	A vágólapra másolva
 	Work folder	Munkamappa
 	Space used	Felhasznált hely
-	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	A szerveren lévő munkamappája fájljaival dolgozik, nem a látogatók böngészőjében megnyitott dokumentumokkal.
 	Turn on the MCP server	Az MCP-szerver bekapcsolása
 	When off, no app can be reached, whatever its own switch says.	Kikapcsolva egyik alkalmazás sem érhető el, akármit mutat a saját kapcsolója.
 	Apps on MCP	Alkalmazások MCP-n
@@ -366,7 +365,6 @@ filter	Installed	Telepítve
 	Turn an app on or off in its details.	Egy alkalmazást a részleteinél kapcsolhatsz be vagy ki.
 	Delete files not changed for	Változatlan fájlok törlése ennyi idő után:
 	Never	Soha
-	Space per app	Hely alkalmazásonként
 	Sessions at once	Egyidejű munkamenetek
 	Access tokens	Hozzáférési tokenek
 	New token	Új token
@@ -413,3 +411,19 @@ filter	Installed	Telepítve
 	MCP on	MCP be
 	MCP off	MCP ki
 	Sign in to change these.	A módosításhoz jelentkezz be.
+	Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers.	Minden kliensnek (tokennek) saját mappája van benne: az ott lévő fájlokkal dolgozik, nem a látogatók böngészőjében megnyitott dokumentumokkal.
+	Files	Fájlok
+	No files yet.	Még nincsenek fájlok.
+	Earlier files (from before each client had its own folder)	Korábbi fájlok (abból az időből, amikor a klienseknek még nem volt saját mappájuk)
+	A revoked token	Egy visszavont token
+	Add files…	Fájlok hozzáadása…
+	Delete	Törlés
+	Delete this file?	Törli ezt a fájlt?
+	deleted at the next clean-up	a következő takarításkor törlődik
+	kept	megmarad
+	Space per client	Hely kliensenként
+	Let MCP clients download files from web addresses	MCP-kliensek letölthetnek fájlokat webcímekről
+	Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it.	Hozzáadja a launcher_file_from_url eszközt: a szerver egy nyilvános https-címet tölt le a kliens mappájába. Ne kapcsolja be, ha nincs rá szükség.
+	Revoke it? Its files on the server are deleted too.	Visszavonja? A fájljai is törlődnek a szerverről.
+@plural	deleted in {n} day|deleted in {n} days	{n} nap múlva törlődik|{n} nap múlva törlődik
+@plural	…and {n} more file|…and {n} more files	…és még {n} fájl|…és még {n} fájl

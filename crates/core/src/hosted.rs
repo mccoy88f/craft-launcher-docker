@@ -111,6 +111,13 @@ pub struct McpState {
     pub base_url: String,
     pub apps: Vec<McpApp>,
     pub tokens: Vec<McpToken>,
+    /// MCP clients may have the launcher download a file from a web address into their folder
+    /// (`launcher_file_from_url`). Off unless the administrator turns it on.
+    #[serde(default)]
+    pub file_from_url: bool,
+    /// Every client's work folder, with its files: for the administrator only (empty otherwise).
+    #[serde(default)]
+    pub files: Vec<McpFiles>,
 }
 
 impl McpState {
@@ -133,6 +140,60 @@ pub struct McpApp {
     pub used_bytes: u64,
     /// Sessions running now.
     pub sessions: u32,
+}
+
+/// The folder of files made before each client had its own: kept for the administrator to
+/// download, out of every client's reach.
+pub const PREVIOUS_FILES: &str = "previous";
+
+/// One client's work folder in one app (`/work/<app>/<client>`): only the sessions signed in with
+/// that token (or OAuth grant) see it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpFiles {
+    pub app: String,
+    /// The token's id, or [`PREVIOUS_FILES`].
+    pub client: String,
+    /// The token's name (empty for [`PREVIOUS_FILES`], or a token revoked meanwhile).
+    pub name: String,
+    pub used_bytes: u64,
+    /// The newest files first.
+    pub files: Vec<McpFile>,
+    /// Files left out of `files`, which is kept short.
+    pub more: u32,
+}
+
+/// One file in a client's work folder.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpFile {
+    /// Relative to the client's folder, with `/` between folders.
+    pub path: String,
+    pub bytes: u64,
+    /// Unix seconds of its last change.
+    pub modified: i64,
+    /// Unix seconds from when it may be deleted (`modified` + the days files are kept); `None`
+    /// when files are kept.
+    pub expires: Option<i64>,
+}
+
+impl McpFiles {
+    /// Where the administrator downloads a file, relative to the page (`api/files/<app>/<client>/<path>`).
+    pub fn download_url(&self, path: &str) -> String {
+        let path: Vec<String> = path.split('/').map(url_component).collect();
+        format!("api/files/{}/{}/{}", self.app, url_component(&self.client), path.join("/"))
+    }
+}
+
+/// `text` with everything but unreserved characters percent-encoded.
+pub fn url_component(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// An access token, without its secret (shown once, when it's made).
@@ -181,8 +242,19 @@ pub enum McpChange {
         name: String,
         apps: Option<Vec<String>>,
     },
+    /// Revoke a token: its sessions end and its work folders are deleted.
     RevokeToken {
         id: String,
+    },
+    /// Let MCP clients have the launcher download files from web addresses, or not.
+    FileFromUrl {
+        on: bool,
+    },
+    /// Delete one file of a client's work folder.
+    DeleteFile {
+        app: String,
+        client: String,
+        path: String,
     },
 }
 

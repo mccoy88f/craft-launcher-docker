@@ -356,7 +356,6 @@ filter	Installed	Installiert
 	Copied to the clipboard	In die Zwischenablage kopiert
 	Work folder	Arbeitsordner
 	Space used	Belegter Speicher
-	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	Er arbeitet mit den Dateien im Arbeitsordner auf dem Server, nicht mit Dokumenten, die Besucher im Browser geöffnet haben.
 	Turn on the MCP server	MCP-Server einschalten
 	When off, no app can be reached, whatever its own switch says.	Ausgeschaltet ist keine App erreichbar, egal was ihr eigener Schalter sagt.
 	Apps on MCP	Apps über MCP
@@ -365,7 +364,6 @@ filter	Installed	Installiert
 	Turn an app on or off in its details.	Schalte eine App in ihren Details ein oder aus.
 	Delete files not changed for	Unveränderte Dateien löschen nach
 	Never	Nie
-	Space per app	Speicher pro App
 	Sessions at once	Gleichzeitige Sitzungen
 	Access tokens	Zugangstoken
 	New token	Neues Token
@@ -412,3 +410,19 @@ filter	Installed	Installiert
 	MCP on	MCP an
 	MCP off	MCP aus
 	Sign in to change these.	Melde dich an, um das zu ändern.
+	Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers.	Jeder Client (Token) hat darin einen eigenen Ordner: Er arbeitet mit den Dateien dort, nicht mit Dokumenten, die in den Browsern der Besucher geöffnet sind.
+	Files	Dateien
+	No files yet.	Noch keine Dateien.
+	Earlier files (from before each client had its own folder)	Frühere Dateien (aus der Zeit, bevor jeder Client einen eigenen Ordner hatte)
+	A revoked token	Ein widerrufenes Token
+	Add files…	Dateien hinzufügen…
+	Delete	Löschen
+	Delete this file?	Diese Datei löschen?
+	deleted at the next clean-up	wird bei der nächsten Bereinigung gelöscht
+	kept	behalten
+	Space per client	Speicher pro Client
+	Let MCP clients download files from web addresses	MCP-Clients erlauben, Dateien von Webadressen herunterzuladen
+	Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it.	Fügt das Werkzeug launcher_file_from_url hinzu: Der Server lädt eine öffentliche https-Adresse in den Ordner des Clients. Nur einschalten, wenn nötig.
+	Revoke it? Its files on the server are deleted too.	Widerrufen? Seine Dateien auf dem Server werden ebenfalls gelöscht.
+@plural	deleted in {n} day|deleted in {n} days	wird in {n} Tag gelöscht|wird in {n} Tagen gelöscht
+@plural	…and {n} more file|…and {n} more files	…und {n} weitere Datei|…und {n} weitere Dateien

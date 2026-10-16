@@ -337,7 +337,6 @@ filter	Installed	Installate
 	Copied to the clipboard	Copiato negli appunti
 	Work folder	Cartella di lavoro
 	Space used	Spazio usato
-	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	Lavora sui file della sua cartella di lavoro sul server, non sui documenti aperti nel browser dei visitatori.
 	Turn on the MCP server	Attiva il server MCP
 	When off, no app can be reached, whatever its own switch says.	Se è spento, nessuna app è raggiungibile, qualunque cosa dica il suo interruttore.
 	Apps on MCP	App su MCP
@@ -346,7 +345,6 @@ filter	Installed	Installate
 	Turn an app on or off in its details.	Attiva o disattiva un'app dai suoi dettagli.
 	Delete files not changed for	Elimina i file non modificati da
 	Never	Mai
-	Space per app	Spazio per app
 	Sessions at once	Sessioni contemporanee
 	Access tokens	Token di accesso
 	New token	Nuovo token
@@ -393,3 +391,19 @@ filter	Installed	Installate
 	MCP on	MCP attivo
 	MCP off	MCP spento
 	Sign in to change these.	Accedi per modificarle.
+	Each client (token) has its own folder in it: it works on the files there, not on documents open in visitors' browsers.	Ogni client (token) ha qui la sua cartella: lavora sui file che contiene, non sui documenti aperti nel browser dei visitatori.
+	Files	File
+	No files yet.	Ancora nessun file.
+	Earlier files (from before each client had its own folder)	File precedenti (da prima che ogni client avesse la sua cartella)
+	A revoked token	Un token revocato
+	Add files…	Aggiungi file…
+	Delete	Elimina
+	Delete this file?	Eliminare questo file?
+	deleted at the next clean-up	eliminato alla prossima pulizia
+	kept	conservato
+	Space per client	Spazio per client
+	Let MCP clients download files from web addresses	Consenti ai client MCP di scaricare file da indirizzi web
+	Adds the launcher_file_from_url tool: the server fetches a public https address into the client's folder. Off unless you need it.	Aggiunge lo strumento launcher_file_from_url: il server scarica un indirizzo https pubblico nella cartella del client. Lascialo spento se non ti serve.
+	Revoke it? Its files on the server are deleted too.	Revocarlo? Anche i suoi file sul server verranno eliminati.
+@plural	deleted in {n} day|deleted in {n} days	eliminato tra {n} giorno|eliminato tra {n} giorni
+@plural	…and {n} more file|…and {n} more files	…e {n} altro file|…e altri {n} file

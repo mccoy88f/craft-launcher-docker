@@ -35,6 +35,8 @@ pub struct Http {
     /// ArtCraft's release feed: a short timeout, so a slow server never holds up a check.
     feed: ureq::Agent,
     no_redirect: ureq::Agent,
+    /// Files from any address (a launcher server's MCP clients): each redirect checked first.
+    fetch: ureq::Agent,
     download: ureq::Agent,
     token: Option<String>,
 }
@@ -84,6 +86,17 @@ impl Http {
             .user_agent(USER_AGENT)
             .build()
             .new_agent();
+        let fetch = ureq::Agent::config_builder()
+            .tls_config(tls())
+            .proxy(proxy.clone())
+            .timeout_connect(Some(Duration::from_secs(20)))
+            .timeout_global(Some(Duration::from_secs(10 * 60)))
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .max_redirects_will_error(false)
+            .user_agent(USER_AGENT)
+            .build()
+            .new_agent();
         let download = ureq::Agent::config_builder()
             .tls_config(tls())
             .proxy(proxy.clone())
@@ -98,7 +111,7 @@ impl Http {
         // An optional token raises GitHub's limit from 60 to 5000 requests an hour. Only ever sent
         // to api.github.com.
         let token = std::env::var("ARTCRAFT_LAUNCHER_GITHUB_TOKEN").ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
-        Ok(Self { small, feed, no_redirect, download, token })
+        Ok(Self { small, feed, no_redirect, fetch, download, token })
     }
 
     /// GET a GitHub API resource, revalidating with `etag` when given.
@@ -179,6 +192,33 @@ impl Http {
             404 => Ok(None),
             s => Err(format!("{} answered HTTP {s}", host(url))),
         }
+    }
+
+    /// GET a file of at most `max` bytes from any address, asking `allowed` about the address and
+    /// each one it redirects to (at most five) before connecting.
+    pub fn get_checked(&self, url: &str, max: u64, allowed: &dyn Fn(&str) -> Result<(), String>) -> Result<Vec<u8>, String> {
+        let mut url = url.to_string();
+        for _ in 0..=5 {
+            allowed(&url)?;
+            let mut resp = self.fetch.get(&url).call().map_err(|e| format!("couldn't reach {} ({e})", host(&url)))?;
+            match resp.status().as_u16() {
+                200 => {
+                    let announced = resp.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
+                    let too_big = || format!("{} sends more than {max} bytes", host(&url));
+                    if announced.is_some_and(|n| n > max) {
+                        return Err(too_big());
+                    }
+                    let body = resp.body_mut().with_config().limit(max + 1).read_to_vec().map_err(|e| format!("unreadable answer ({e})"))?;
+                    return if body.len() as u64 > max { Err(too_big()) } else { Ok(body) };
+                }
+                301 | 302 | 303 | 307 | 308 => {
+                    let location = resp.headers().get("location").and_then(|v| v.to_str().ok()).ok_or("a redirect without an address")?;
+                    url = join_url(&url, location);
+                }
+                s => return Err(format!("{} answered HTTP {s}", host(&url))),
+            }
+        }
+        Err("too many redirects".into())
     }
 
     /// Where `url` redirects to, without following it.
@@ -485,6 +525,23 @@ fn parse_content_range(v: &str) -> Option<(u64, Option<u64>)> {
     Some((start, total))
 }
 
+/// `location` (absolute, or relative to `base`'s host) as an absolute address.
+fn join_url(base: &str, location: &str) -> String {
+    if location.contains("://") {
+        return location.to_string();
+    }
+    let origin_end = base.find("://").map_or(0, |i| i + 3);
+    let host_end = base[origin_end..].find('/').map_or(base.len(), |i| origin_end + i);
+    if location.starts_with("//") {
+        format!("{}{}", &base[..origin_end - 2], location)
+    } else if location.starts_with('/') {
+        format!("{}{location}", &base[..host_end])
+    } else {
+        let dir_end = base.rfind('/').filter(|i| *i >= host_end).map_or(host_end, |i| i);
+        format!("{}/{location}", &base[..dir_end])
+    }
+}
+
 pub fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
@@ -527,6 +584,15 @@ fn host(url: &str) -> &str {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn redirects_are_joined_to_where_they_came_from() {
+        assert_eq!(join_url("https://a.com/x/y.png", "https://b.com/z"), "https://b.com/z");
+        assert_eq!(join_url("https://a.com/x/y.png", "//b.com/z"), "https://b.com/z");
+        assert_eq!(join_url("https://a.com/x/y.png", "/z"), "https://a.com/z");
+        assert_eq!(join_url("https://a.com/x/y.png", "z.png"), "https://a.com/x/z.png");
+        assert_eq!(join_url("https://a.com", "z.png"), "https://a.com/z.png");
+    }
 
     const DAYS_30: Duration = Duration::from_secs(30 * 86_400);
     const DAYS_7: Duration = Duration::from_secs(7 * 86_400);

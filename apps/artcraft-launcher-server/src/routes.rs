@@ -15,7 +15,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use tower::ServiceExt;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 
 use crate::Server;
 use crate::mcp::{self, Refusal};
@@ -35,6 +35,8 @@ pub fn router(server: Shared) -> Router {
         .route("/admin", get(admin_redirect))
         .route("/admin/", get(admin_redirect))
         .route("/admin/{*path}", get(admin_redirect))
+        .route("/api/files/{app}/{client}/{*path}", get(file_get).put(file_put).layer(DefaultBodyLimit::max(mcp::FILE_MAX as usize)))
+        .route("/files/{link}/{name}", get(link_get))
         .route("/mcp/{app}", post(mcp_post).get(mcp_get).delete(mcp_delete).layer(DefaultBodyLimit::max(32 << 20)))
         .route("/apps/{app}", get(app_redirect))
         .route("/apps/{app}/", get(app_file))
@@ -168,6 +170,11 @@ async fn mcp_change(State(server): State<Shared>, headers: HeaderMap, Json(chang
             mcp.revoke_token(&id);
             Ok(())
         }
+        McpChange::FileFromUrl { on } => {
+            mcp.set_file_from_url(on);
+            Ok(())
+        }
+        McpChange::DeleteFile { app: id, client, path } => app(&id).and_then(|a| mcp.delete_file(a, &client, &path)),
     };
     match result {
         Ok(()) => no_store(Json(McpAnswer { state: view(&server, true), token }).into_response()),
@@ -236,7 +243,7 @@ async fn mcp_post(State(server): State<Shared>, Path(app): Path<String>, headers
         let Some(cli) = server.hosting.cli(craft.id) else {
             return json_answer(StatusCode::NOT_FOUND, mcp::rpc_error(id.as_ref(), -32001, "this app's MCP server is off"));
         };
-        match server.mcp.start(craft, token, &cli) {
+        match server.mcp.start(craft, token.clone(), &cli) {
             Ok(s) => (s, true),
             Err(e) => return json_answer(StatusCode::SERVICE_UNAVAILABLE, mcp::rpc_error(id.as_ref(), -32000, &e)),
         }
@@ -251,8 +258,18 @@ async fn mcp_post(State(server): State<Shared>, Path(app): Path<String>, headers
         }
     };
 
+    // The launcher's own tools are answered here, without the app.
     if method == "tools/call"
-        && let Some((used, quota)) = server.mcp.over_quota(craft.id)
+        && let Some(name) = message.pointer("/params/name").and_then(|n| n.as_str()).filter(|n| n.starts_with("launcher_"))
+    {
+        let args = message.pointer("/params/arguments").cloned().unwrap_or(serde_json::Value::Null);
+        let base = crate::oauth::public_base(&headers);
+        let result = server.mcp.call_launcher_tool(&server.http, craft.id, &token, name, &args, &base).await;
+        return json_answer(StatusCode::OK, serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string());
+    }
+
+    if method == "tools/call"
+        && let Some((used, quota)) = server.mcp.over_quota(craft.id, &token)
     {
         let text =
             format!("the work folder is full ({} MB of {} MB): empty it, or raise the quota, in the launcher's settings", used >> 20, quota >> 20);
@@ -270,7 +287,40 @@ async fn mcp_post(State(server): State<Shared>, Path(app): Path<String>, headers
         // A notification or a client's answer: nothing comes back.
         return StatusCode::ACCEPTED.into_response();
     };
-    let mut response = if headers.get(header::ACCEPT).and_then(|v| v.to_str().ok()).is_some_and(|a| a.contains("text/event-stream")) {
+    // The launcher adds to two answers: `initialize` (what the client should know about its
+    // files) and the first page of `tools/list` (its own tools). Those come back as JSON.
+    let amend = method == "initialize" || (method == "tools/list" && message.pointer("/params/cursor").is_none());
+    let mut response = if amend {
+        match mcp::answer(rx, &id).await {
+            Some(line) => {
+                let line = match serde_json::from_str::<serde_json::Value>(&line) {
+                    Ok(mut answer) => {
+                        if method == "initialize" {
+                            let note = server.mcp.instructions(craft.id, &token);
+                            if let Some(result) = answer.get_mut("result").and_then(|r| r.as_object_mut()) {
+                                let text = match result.get("instructions").and_then(|i| i.as_str()) {
+                                    Some(theirs) if !theirs.is_empty() => format!("{theirs}\n\n{note}"),
+                                    _ => note,
+                                };
+                                result.insert("instructions".into(), text.into());
+                            }
+                        } else if let Some(tools) = answer.pointer_mut("/result/tools").and_then(|t| t.as_array_mut()) {
+                            tools.extend(server.mcp.launcher_tools());
+                        }
+                        answer.to_string()
+                    }
+                    Err(_) => line,
+                };
+                json_answer(StatusCode::OK, line)
+            }
+            None => {
+                if new {
+                    server.mcp.end_session(&session.id);
+                }
+                json_answer(StatusCode::GATEWAY_TIMEOUT, mcp::rpc_error(Some(&id), -32000, "the app's MCP server didn't answer"))
+            }
+        }
+    } else if headers.get(header::ACCEPT).and_then(|v| v.to_str().ok()).is_some_and(|a| a.contains("text/event-stream")) {
         // Everything the tool says until the answer, as it comes; the stream ends after the answer.
         use tokio_stream::StreamExt;
         let events = tokio_stream::wrappers::UnboundedReceiverStream::new(rx)
@@ -315,6 +365,70 @@ async fn mcp_delete(State(server): State<Shared>, Path(app): Path<String>, heade
         }
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+#[derive(Deserialize)]
+struct FilePath {
+    app: String,
+    client: String,
+    path: String,
+}
+
+/// `GET /api/files/<app>/<client>/<path>`: the administrator downloads a file of a client's work
+/// folder.
+async fn file_get(State(server): State<Shared>, Path(p): Path<FilePath>, headers: HeaderMap, request: Request) -> Response {
+    if !is_admin(&server, &headers) {
+        return sign_in_first(&headers).await;
+    }
+    match CraftApp::by_id(&p.app).and_then(|a| server.mcp.file_path(a.id, &p.client, &p.path)).filter(|f| f.is_file()) {
+        Some(file) => send_file(file, request).await,
+        None => (StatusCode::NOT_FOUND, "no such file").into_response(),
+    }
+}
+
+/// `PUT /api/files/<app>/<client>/<path>`: the administrator puts a file in a client's work folder.
+async fn file_put(State(server): State<Shared>, Path(p): Path<FilePath>, headers: HeaderMap, body: Bytes) -> Response {
+    if !headers.contains_key(REQUEST_HEADER) {
+        return (StatusCode::FORBIDDEN, "missing request header").into_response();
+    }
+    if !is_admin(&server, &headers) {
+        return sign_in_first(&headers).await;
+    }
+    let Some(app) = CraftApp::by_id(&p.app) else {
+        return (StatusCode::NOT_FOUND, "no such app").into_response();
+    };
+    match server.mcp.save_file(app, &p.client, &p.path, &body) {
+        Ok(()) => no_store(Json(McpAnswer { state: view(&server, true), token: None }).into_response()),
+        Err(e) => no_store((StatusCode::CONFLICT, e).into_response()),
+    }
+}
+
+/// `GET /files/<link>/<name>`: a download link an MCP client asked for (`launcher_file_link`).
+/// The link is the key: whoever has it may download the file, for an hour.
+async fn link_get(State(server): State<Shared>, Path((link, _name)): Path<(String, String)>, request: Request) -> Response {
+    match server.mcp.link(&link).filter(|f| f.is_file()) {
+        Some(file) => send_file(file, request).await,
+        None => (StatusCode::NOT_FOUND, "This download link has expired: ask for a new one.").into_response(),
+    }
+}
+
+/// A file as a download, under its own name.
+async fn send_file(file: PathBuf, request: Request) -> Response {
+    let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+    let mut response = match ServeFile::new(&file).oneshot(request).await {
+        Ok(r) => r.map(Body::new),
+        Err(never) => match never {},
+    };
+    let ascii: String = name.chars().map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' { c } else { '_' }).collect();
+    let disposition = format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{}", artcraft_launcher_core::hosted::url_component(&name));
+    let headers = response.headers_mut();
+    if let Ok(value) = HeaderValue::from_str(&disposition) {
+        headers.insert(header::CONTENT_DISPOSITION, value);
+    }
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox"));
+    response
 }
 
 async fn app_redirect(Path(app): Path<String>) -> Response {

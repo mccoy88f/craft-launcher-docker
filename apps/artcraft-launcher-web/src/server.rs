@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use artcraft_launcher_core::hosted::{McpAnswer, McpChange, McpState, REQUEST_HEADER, Releases, ServerState};
+use artcraft_launcher_core::hosted::{McpAnswer, McpChange, McpFiles, McpState, REQUEST_HEADER, Releases, ServerState, url_component};
 use artcraft_launcher_core::protocol::{Backend, Capabilities, Command, Event, LatestRelease, Origin, Source};
 use artcraft_launcher_core::{Platform, SUITE, version};
 use wasm_bindgen::JsCast;
@@ -148,7 +148,7 @@ impl ServerBackend {
         }
         let Ok(body) = serde_json::to_string(&change) else { return };
         let label = match &change {
-            McpChange::App { app, .. } | McpChange::Empty { app } => app.clone(),
+            McpChange::App { app, .. } | McpChange::Empty { app } | McpChange::DeleteFile { app, .. } => app.clone(),
             _ => "mcp".to_string(),
         };
         let (seen, events, ctx) = (self.seen.clone(), self.events.clone(), self.ctx.clone());
@@ -175,6 +175,65 @@ impl ServerBackend {
             }
             ctx.request_repaint();
         });
+    }
+
+    /// Downloads a file of a client's work folder (the administrator).
+    fn download(&self, app: String, client: String, path: String) {
+        if !self.admin {
+            sign_in();
+            return;
+        }
+        let url = McpFiles { app, client, ..McpFiles::default() }.download_url(&path);
+        let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+        // A link with `download`, clicked: the browser saves the file and the page stays.
+        if let Ok(link) = document.create_element("a").map(|e| e.unchecked_into::<web_sys::HtmlAnchorElement>()) {
+            link.set_href(&url);
+            link.set_download(path.rsplit('/').next().unwrap_or(&path));
+            link.click();
+        }
+    }
+
+    /// Asks for files on this device and puts them in a client's work folder (the administrator).
+    fn upload(&self, app: String, client: String) {
+        if !self.admin {
+            sign_in();
+            return;
+        }
+        let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+        let Ok(input) = document.create_element("input").map(|e| e.unchecked_into::<web_sys::HtmlInputElement>()) else { return };
+        input.set_type("file");
+        input.set_multiple(true);
+        let (seen, events, ctx, picked) = (self.seen.clone(), self.events.clone(), self.ctx.clone(), input.clone());
+        let on_change = wasm_bindgen::closure::Closure::once_into_js(move || {
+            let Some(files) = picked.files() else { return };
+            let files: Vec<web_sys::File> = (0..files.length()).filter_map(|i| files.get(i)).collect();
+            wasm_bindgen_futures::spawn_local(async move {
+                for file in files {
+                    let url = format!("api/files/{app}/{}/{}", url_component(&client), url_component(&file.name()));
+                    let answer = send_blob("PUT", &url, &file).await;
+                    let mut seen = seen.borrow_mut();
+                    let mut events = events.borrow_mut();
+                    match answer {
+                        Ok((200, text)) => {
+                            if let Ok(answer) = serde_json::from_str::<McpAnswer>(&text) {
+                                seen.asked_at = js_sys::Date::now();
+                                apply(&mut seen, answer.state, &mut events, false);
+                            }
+                        }
+                        Ok((401, _)) => sign_in(),
+                        Ok((status, text)) => {
+                            let why =
+                                if text.trim().is_empty() { format!("the launcher server answered HTTP {status}") } else { text.trim().to_string() };
+                            events.push(Event::JobFinished { app: app.clone(), result: Err(format!("{}: {why}", file.name())) });
+                        }
+                        Err(why) => events.push(Event::JobFinished { app: app.clone(), result: Err(why) }),
+                    }
+                    ctx.request_repaint();
+                }
+            });
+        });
+        input.set_onchange(Some(on_change.unchecked_ref()));
+        input.click();
     }
 
     fn check(&self, force: bool) {
@@ -294,6 +353,8 @@ impl Backend for ServerBackend {
             Command::Mcp(change) => self.mcp(change),
             Command::SignIn => sign_in(),
             Command::SignOut => sign_out(),
+            Command::McpDownload { app, client, path } => self.download(app, client, path),
+            Command::McpUpload { app, client } => self.upload(app, client),
             Command::Reveal { .. } | Command::UpdateLauncher => {}
         }
     }
@@ -355,6 +416,23 @@ fn open_app_window(app: &str, url: &str) -> bool {
         window.screen().ok().map_or((1280, 800), |s| (s.avail_width().unwrap_or(1280).max(640), s.avail_height().unwrap_or(800).max(480)));
     let features = format!("popup=yes,width={width},height={height},left=0,top=0");
     matches!(window.open_with_url_and_target_and_features(url, &format!("artcraft-{app}"), &features), Ok(Some(_)))
+}
+
+/// Sends a file (a `Blob`) to the launcher server: its status and answer.
+async fn send_blob(method: &str, url: &str, body: &web_sys::Blob) -> Result<(u16, String), String> {
+    let offline = || "couldn't reach the launcher server".to_string();
+    let window = web_sys::window().ok_or_else(offline)?;
+    let init = web_sys::RequestInit::new();
+    init.set_method(method);
+    init.set_mode(web_sys::RequestMode::SameOrigin);
+    init.set_body(body);
+    let request = web_sys::Request::new_with_str_and_init(url, &init).map_err(|_| offline())?;
+    let _ = request.headers().set("Accept", "application/json");
+    let _ = request.headers().set(REQUEST_HEADER, "1");
+    let resp: web_sys::Response =
+        JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| offline())?.dyn_into().map_err(|_| offline())?;
+    let text = JsFuture::from(resp.text().map_err(|_| offline())?).await.map_err(|_| offline())?.as_string().unwrap_or_default();
+    Ok((resp.status(), text.chars().take(4096).collect()))
 }
 
 /// One request to the launcher server: its status and body. The browser sends the
