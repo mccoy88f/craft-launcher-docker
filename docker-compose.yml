@@ -20,6 +20,8 @@ services:
       - ARTCRAFT_LAUNCHER_GITHUB_TOKEN=${ARTCRAFT_LAUNCHER_GITHUB_TOKEN:-}
     volumes:
       - launcher-data:/data
+      # The apps' MCP work folders (emptied of old files on the schedule set in Settings).
+      - launcher-work:/work
     expose:
       - "8080"
     healthcheck:
@@ -31,3 +33,4 @@ services:
 
 volumes:
   launcher-data:
+  launcher-work:

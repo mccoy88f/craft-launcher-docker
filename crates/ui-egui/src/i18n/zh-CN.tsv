@@ -312,3 +312,45 @@ figcraft	Interface design and prototyping	界面设计与原型制作
 @msg	{name} installed: {version} (this release publishes no checksum, so only its size was checked)	{name} 已安装：{version}（此版本未发布校验和，因此只检查了文件大小）
 @msg	{name} was removed	{name} 已卸载
 @msg	{name} is running. Quit it, then try again.	{name} 正在运行。请先退出，然后重试。
+
+# A launcher server's MCP server (Settings, an app's details, the access-token dialogs).
+	MCP server	MCP 服务器
+	Control {name} from Claude or other MCP clients	从 Claude 或其他 MCP 客户端控制 {name}
+	MCP server for {name}	{name} 的 MCP 服务器
+	Turn on the MCP server in Settings to reach it.	在设置中打开 MCP 服务器后才能访问它。
+	Its command-line tool isn't installed yet.	该应用的命令行工具尚未安装。
+	Address	地址
+	Copy	复制
+	Copied to the clipboard	已复制到剪贴板
+	Work folder	工作文件夹
+	Space used	已用空间
+	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	它处理服务器上工作文件夹中的文件，而不是访客浏览器中打开的文档。
+	Turn on the MCP server	打开 MCP 服务器
+	When off, no app can be reached, whatever its own switch says.	关闭时，无论各应用自己的开关如何，都无法访问任何应用。
+	Apps on MCP	MCP 上的应用
+	No app is on yet.	还没有打开任何应用。
+	Empty	清空
+	Turn an app on or off in its details.	在应用详情中打开或关闭它。
+	Delete files not changed for	删除多久未更改的文件
+	Never	从不
+	Space per app	每个应用的空间
+	Sessions at once	同时会话数
+	Access tokens	访问令牌
+	New token	新建令牌
+	No tokens yet.	还没有令牌。
+	All apps	所有应用
+	Used {ago}	{ago}使用过
+	Not used yet	尚未使用
+	Revoke	撤销
+	A token is shown only once, when it's made; the server keeps only its fingerprint. Give each client its own token, so you can revoke one without touching the others.	令牌只在创建时显示一次；服务器只保存它的指纹。为每个客户端分别创建令牌，这样撤销其中一个时不影响其他。
+	New MCP token	新建 MCP 令牌
+	Allowed apps	允许的应用
+	Create	创建
+	Copy it now: it won't be shown again.	请立即复制：它不会再次显示。
+	Token	令牌
+	For Claude Code	用于 Claude Code
+	For other MCP clients, add a remote server with the app's address and the header Authorization: Bearer followed by this token.	对于其他 MCP 客户端，添加一个远程服务器，填写应用的地址，并添加请求头 Authorization: Bearer 加上此令牌。
+	I've copied the token	我已复制令牌
+	Its MCP work folder on the server is deleted too.	它在服务器上的 MCP 工作文件夹也会被删除。
+@plural	{n} day|{n} days	{n} 天
+@msg	{name}: MCP server ready	{name}：MCP 服务器已就绪

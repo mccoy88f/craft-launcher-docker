@@ -140,6 +140,7 @@ impl LauncherUi {
                     ui.set_width(ui.available_width());
                     self.gallery(ui, details, &t, rgb(entry.app.color));
                     ui.add_space(8.0);
+                    self.mcp_app_section(ui, &entry, &t);
                     for p in details.paragraphs() {
                         ui.add(egui::Label::new(RichText::new(p).size(14.5).color(t.ink)).wrap());
                     }

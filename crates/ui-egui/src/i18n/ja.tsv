@@ -347,3 +347,45 @@ filter	Installed	インストール済み
 	ArtCraft on GitHub	GitHub の ArtCraft
 	Join the ArtCraft Discord	ArtCraft Discord に参加
 @plural	ArtCraft Launcher · {n} update available|ArtCraft Launcher · {n} updates available	ArtCraft Launcher · {n} 件の更新があります
+
+# A launcher server's MCP server (Settings, an app's details, the access-token dialogs).
+	MCP server	MCPサーバー
+	Control {name} from Claude or other MCP clients	Claudeやほかのクライアントから、MCPで{name}を操作します
+	MCP server for {name}	{name}のMCPサーバー
+	Turn on the MCP server in Settings to reach it.	アクセスできるようにするには、設定でMCPサーバーをオンにしてください。
+	Its command-line tool isn't installed yet.	アプリのコマンドラインツールはまだインストールされていません。
+	Address	アドレス
+	Copy	コピー
+	Copied to the clipboard	クリップボードにコピーしました
+	Work folder	作業フォルダー
+	Space used	使用容量
+	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	サーバー上の作業フォルダー内のファイルを扱います。訪問者のブラウザーで開かれているドキュメントは扱いません。
+	Turn on the MCP server	MCPサーバーをオンにする
+	When off, no app can be reached, whatever its own switch says.	オフのときは、各アプリのスイッチに関係なく、どのアプリにもアクセスできません。
+	Apps on MCP	MCPで公開中のアプリ
+	No app is on yet.	まだオンになっているアプリはありません。
+	Empty	空にする
+	Turn an app on or off in its details.	アプリのオン・オフは詳細画面で切り替えます。
+	Delete files not changed for	変更のないファイルを削除するまでの期間
+	Never	削除しない
+	Space per app	アプリごとの容量
+	Sessions at once	同時セッション数
+	Access tokens	アクセストークン
+	New token	新しいトークン
+	No tokens yet.	トークンはまだありません。
+	All apps	すべてのアプリ
+	Used {ago}	{ago}に使用
+	Not used yet	未使用
+	Revoke	取り消す
+	A token is shown only once, when it's made; the server keeps only its fingerprint. Give each client its own token, so you can revoke one without touching the others.	トークンは作成時に一度だけ表示され、サーバーにはその指紋だけが保存されます。クライアントごとに別のトークンを発行すれば、ほかに影響を与えずに一つだけ取り消せます。
+	New MCP token	新しいMCPトークン
+	Allowed apps	許可するアプリ
+	Create	作成
+	Copy it now: it won't be shown again.	今すぐコピーしてください。二度と表示されません。
+	Token	トークン
+	For Claude Code	Claude Codeの場合
+	For other MCP clients, add a remote server with the app's address and the header Authorization: Bearer followed by this token.	ほかのMCPクライアントでは、アプリのアドレスと、Authorization: Bearer にこのトークンを続けたヘッダーで、リモートサーバーを追加します。
+	I've copied the token	トークンをコピーしました
+	Its MCP work folder on the server is deleted too.	サーバー上のMCP作業フォルダーも削除されます。
+@plural	{n} day|{n} days	{n}日
+@msg	{name}: MCP server ready	{name}: MCPサーバーの準備ができました

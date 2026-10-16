@@ -312,3 +312,45 @@ filter	Installed	Nainstalováno
 	ArtCraft on GitHub	ArtCraft na GitHubu
 	Join the ArtCraft Discord	Připojit se na ArtCraft Discord
 @plural	ArtCraft Launcher · {n} update available|ArtCraft Launcher · {n} updates available	ArtCraft Launcher · {n} dostupná aktualizace|ArtCraft Launcher · {n} dostupné aktualizace|ArtCraft Launcher · {n} dostupných aktualizací
+
+# A launcher server's MCP server (Settings, an app's details, the access-token dialogs).
+	MCP server	Server MCP
+	Control {name} from Claude or other MCP clients	Ovládejte {name} z Claude nebo jiných klientů MCP
+	MCP server for {name}	Server MCP pro {name}
+	Turn on the MCP server in Settings to reach it.	Aby byl dostupný, zapněte server MCP v Nastavení.
+	Its command-line tool isn't installed yet.	Nástroj příkazové řádky aplikace zatím není nainstalován.
+	Address	Adresa
+	Copy	Kopírovat
+	Copied to the clipboard	Zkopírováno do schránky
+	Work folder	Pracovní složka
+	Space used	Využité místo
+	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	Pracuje se soubory ve své pracovní složce na serveru, ne s dokumenty otevřenými v prohlížečích návštěvníků.
+	Turn on the MCP server	Zapnout server MCP
+	When off, no app can be reached, whatever its own switch says.	Když je vypnutý, žádná aplikace není dostupná, ať její vlastní přepínač ukazuje cokoli.
+	Apps on MCP	Aplikace v MCP
+	No app is on yet.	Zatím není zapnutá žádná aplikace.
+	Empty	Vyprázdnit
+	Turn an app on or off in its details.	Aplikaci zapnete nebo vypnete v jejích podrobnostech.
+	Delete files not changed for	Mazat soubory beze změny déle než
+	Never	Nikdy
+	Space per app	Místo pro aplikaci
+	Sessions at once	Současných relací
+	Access tokens	Přístupové tokeny
+	New token	Nový token
+	No tokens yet.	Zatím žádné tokeny.
+	All apps	Všechny aplikace
+	Used {ago}	Použito {ago}
+	Not used yet	Zatím nepoužito
+	Revoke	Odvolat
+	A token is shown only once, when it's made; the server keeps only its fingerprint. Give each client its own token, so you can revoke one without touching the others.	Token se zobrazí jen jednou, při vytvoření; server si uchová jen jeho otisk. Každému klientovi dejte vlastní token, abyste mohli jeden odvolat a ostatní nechat.
+	New MCP token	Nový token MCP
+	Allowed apps	Povolené aplikace
+	Create	Vytvořit
+	Copy it now: it won't be shown again.	Zkopírujte ho hned: znovu se už nezobrazí.
+	Token	Token
+	For Claude Code	Pro Claude Code
+	For other MCP clients, add a remote server with the app's address and the header Authorization: Bearer followed by this token.	Pro jiné klienty MCP přidejte vzdálený server s adresou aplikace a hlavičkou Authorization: Bearer, za kterou následuje tento token.
+	I've copied the token	Token mám zkopírovaný
+	Its MCP work folder on the server is deleted too.	Smaže se i její pracovní složka MCP na serveru.
+@plural	{n} day|{n} days	{n} den|{n} dny|{n} dní
+@msg	{name}: MCP server ready	{name}: server MCP připraven

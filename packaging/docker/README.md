@@ -40,6 +40,46 @@ Launcher** in the menu; Safari: **File → Add to Dock**; on phones: **Add to Ho
 Installed, it has its own icon and window. The apps are inside its scope (`/apps/…`), so they
 open in app windows too, with no browser bars at all.
 
+## MCP: the apps for Claude and other MCP clients
+
+Each Craft App's command-line tool is also an MCP server. The launcher server can run it for
+MCP clients (Claude Code, Claude Desktop and others) at `https://<DOMAIN>/mcp/<app>`, over
+MCP's Streamable HTTP transport. It's off until the administrator turns it on:
+
+1. **Settings → MCP server → Turn on the MCP server.** Off, no app can be reached.
+2. **An app's details → MCP server for <app>.** The first time, the server downloads the
+   app's Linux tarball from the same release as the installed version, checks it against the
+   published SHA-256 and keeps only `bin/<app>-cli`. Updates of the app update it too.
+3. **Settings → New token.** Give it a name (one per client: a computer, a colleague, a script)
+   and the apps it may use. The token is shown once, with the command for Claude Code:
+
+   ```sh
+   claude mcp add --transport http photocraft https://<DOMAIN>/mcp/photocraft \
+     --header "Authorization: Bearer acl_…"
+   ```
+
+   Other clients: add a remote MCP server with the app's address and that header. The server
+   keeps only each token's SHA-256 fingerprint; **Revoke** ends that client's access and its
+   sessions at once.
+
+Each app works in its own folder, `/work/<app>` (the `launcher-work` volume), its only read and
+write root: it can't open or write files anywhere else. It works on the files there, not on the
+documents open in visitors' browsers. In Settings:
+
+| Setting | Default | What it does |
+|---|---|---|
+| Delete files not changed for | 7 days | Once a day, files not changed for that long are deleted (Never: kept). |
+| Space per app | 2 GB | Past it, the app's tool calls are refused with a message saying so, until the folder is emptied or the limit raised. |
+| Sessions at once | 4 | MCP sessions running at the same time, across apps. A session nobody uses for 30 minutes ends. |
+| Empty | | Deletes everything in that app's folder (ending its sessions). |
+
+Uninstalling an app deletes its work folder too (the uninstall prompt says so).
+
+The command-line tool runs inside the launcher's container, as its unprivileged user, with a
+clean environment. The MCP server checks the token on every request, refuses requests from web
+pages on other sites (their `Origin`), and never runs anything but the tools of the Craft Apps
+it installed from their `storytold/` releases.
+
 ## Settings
 
 | Variable | Default | What it does |
@@ -51,7 +91,8 @@ open in app windows too, with no browser bars at all.
 | `ARTCRAFT_CHECK_MINUTES` | `30` | How often the server looks for new releases. The administrator's Refresh button looks at once (at most once a minute). |
 | `ARTCRAFT_LAUNCHER_GITHUB_TOKEN` | | Optional GitHub token (no scopes needed): 5000 API requests an hour instead of 60. Only ever sent to `api.github.com`. |
 | `ARTCRAFT_LISTEN` | `0.0.0.0:8080` | Where the server listens inside the container. |
-| `ARTCRAFT_DATA_DIR` | `/data` | Installed apps, saved release answers and downloads (the `launcher-data` volume). |
+| `ARTCRAFT_DATA_DIR` | `/data` | Installed apps, MCP settings and tokens, saved release answers and downloads (the `launcher-data` volume). |
+| `ARTCRAFT_WORK_DIR` | `/work` | The apps' MCP work folders (the `launcher-work` volume). |
 | `ARTCRAFT_WEB_DIR` | `/srv/artcraft-launcher` | The launcher's web build, put there by the image. |
 | `ARTCRAFT_LOG` | `info` | `error`, `warn`, `info`, `debug` or `trace`. |
 

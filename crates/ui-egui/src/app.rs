@@ -74,6 +74,10 @@ pub(crate) enum Dialog {
     ConfirmUninstall(String),
     Settings,
     LauncherUpdate(artcraft_launcher_core::Release),
+    /// Making an MCP access token.
+    NewToken,
+    /// A new MCP access token, shown once.
+    TokenCreated(String),
 }
 
 impl Dialog {
@@ -85,6 +89,8 @@ impl Dialog {
             Dialog::ConfirmUninstall(id) => ("uninstall", id),
             Dialog::Settings => ("settings", ""),
             Dialog::LauncherUpdate(r) => ("launcher-update", &r.tag),
+            Dialog::NewToken => ("new-token", ""),
+            Dialog::TokenCreated(_) => ("token-created", ""),
         }
     }
 }
@@ -142,6 +148,10 @@ pub struct LauncherUi {
     /// Versions of apps or the launcher already queued for auto-update during this session,
     /// preventing repeated install loops if an update fails or is in progress.
     pub(crate) auto_update_attempted: std::collections::BTreeSet<(String, String)>,
+    /// A launcher server's MCP server, when this is its administrator's page.
+    pub(crate) mcp: Option<artcraft_launcher_core::hosted::McpState>,
+    /// What the new-token dialog is filling in.
+    pub(crate) token_form: crate::mcp::TokenForm,
 }
 
 /// The language to draw in: the preference, or English where it needs a CJK font the system
@@ -199,6 +209,8 @@ impl LauncherUi {
             last_detect: 0,
             was_focused: true,
             auto_update_attempted: std::collections::BTreeSet::new(),
+            mcp: None,
+            token_form: crate::mcp::TokenForm::default(),
         }
     }
 
@@ -404,6 +416,14 @@ impl LauncherUi {
                     self.dialog = Some(Dialog::LauncherUpdate(r));
                 }
                 fresh
+            }
+            Event::Mcp(state) => {
+                self.mcp = Some(state);
+                false
+            }
+            Event::McpTokenCreated(token) => {
+                self.dialog = Some(Dialog::TokenCreated(token));
+                false
             }
             Event::CheckStarted => {
                 self.checking = true;

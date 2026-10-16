@@ -16,7 +16,7 @@ use crate::theme::{self, Tokens, rgb, tint};
 use crate::widgets::{self, Cell, Kind};
 
 /// Translate a relative timestamp ("just now", "5 min ago", …) into the current language.
-fn ago_text(secs: i64, now: i64) -> String {
+pub(crate) fn ago_text(secs: i64, now: i64) -> String {
     match time::ago_kind(secs, now) {
         time::TimeAgo::JustNow => t("just now").to_string(),
         time::TimeAgo::Minutes(n) => tn(n, "{n} min ago", "{n} min ago"),
@@ -481,6 +481,10 @@ impl LauncherUi {
             let r = widgets::badge(ui, &text, widgets::tone_color(&t, tone));
             if let Some(f) = entry.failure() {
                 r.on_hover_text(fmt(tl!("Couldn't check for updates: {f}"), &[("f", f)]));
+            }
+            // "MCP" is a name, the same in every language.
+            if crate::mcp::badge(self.mcp.as_ref(), app.id) {
+                widgets::badge(ui, "MCP", t.ink_strong);
             }
         });
         ui.add_space(4.0);

@@ -27,8 +27,12 @@ impl LauncherUi {
             Dialog::ConfirmUninstall(id) => modal.show(ctx, |ui| close = self.uninstall_dialog(ui, id)),
             Dialog::Settings => modal.show(ctx, |ui| close = self.settings_dialog(ui, host)),
             Dialog::LauncherUpdate(r) => modal.show(ctx, |ui| close = self.launcher_update_dialog(ui, r)),
+            Dialog::NewToken => modal.show(ctx, |ui| close = self.new_token_dialog(ui)),
+            Dialog::TokenCreated(token) => modal.show(ctx, |ui| close = self.token_created_dialog(ui, token)),
         };
-        if close || response.should_close() {
+        // A new token is shown once: only its button closes it, not Escape or a stray click.
+        let keep = matches!(dialog, Dialog::TokenCreated(_));
+        if close || (response.should_close() && !keep) {
             self.dialog = None;
         }
     }
@@ -163,6 +167,10 @@ impl LauncherUi {
             _ => tl!("The app will be removed. Your documents and settings stay."),
         };
         ui.label(RichText::new(how).color(t.muted));
+        if self.mcp.is_some() {
+            ui.add_space(6.0);
+            ui.label(RichText::new(tl!("Its MCP work folder on the server is deleted too.")).color(t.muted));
+        }
         ui.add_space(20.0);
         let mut close = false;
         // A row: a right-to-left layout straight in the column would fill the height left.
@@ -340,6 +348,8 @@ impl LauncherUi {
                 self.toast(&ctx, fmt(tl!("Couldn't change the login item: {e}"), &[("e", &e)]), true);
             }
         }
+
+        self.mcp_settings(ui, &t);
 
         section(ui, tl!("Community"));
         ui.label(RichText::new(tl!("Questions, ideas and news from the ArtCraft team")).color(t.muted));

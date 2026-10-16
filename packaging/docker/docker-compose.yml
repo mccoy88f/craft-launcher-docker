@@ -22,6 +22,8 @@ services:
       ARTCRAFT_LAUNCHER_GITHUB_TOKEN: ${ARTCRAFT_LAUNCHER_GITHUB_TOKEN:-}
     volumes:
       - launcher-data:/data
+      # The apps' MCP work folders (emptied of old files on the schedule set in Settings).
+      - launcher-work:/work
     # Only Caddy talks to it. To use a reverse proxy you already run instead of Caddy, remove the
     # caddy service and publish this port on loopback: ports: ["127.0.0.1:8080:8080"]
     expose:
@@ -45,5 +47,6 @@ services:
 
 volumes:
   launcher-data:
+  launcher-work:
   caddy-data:
   caddy-config:

@@ -23,6 +23,7 @@ mod details;
 mod dialogs;
 pub mod i18n;
 pub mod icons;
+mod mcp;
 pub mod model;
 mod motion;
 mod notes;

@@ -346,3 +346,45 @@ filter	Installed	Zainstalowane
 	ArtCraft on GitHub	ArtCraft na GitHubie
 	Join the ArtCraft Discord	Dołącz do Discorda ArtCraft
 @plural	ArtCraft Launcher · {n} update available|ArtCraft Launcher · {n} updates available	ArtCraft Launcher · {n} dostępna aktualizacja|ArtCraft Launcher · {n} dostępne aktualizacje|ArtCraft Launcher · {n} dostępnych aktualizacji
+
+# A launcher server's MCP server (Settings, an app's details, the access-token dialogs).
+	MCP server	Serwer MCP
+	Control {name} from Claude or other MCP clients	Steruj aplikacją {name} z Claude lub innych klientów MCP
+	MCP server for {name}	Serwer MCP dla {name}
+	Turn on the MCP server in Settings to reach it.	Włącz serwer MCP w Ustawieniach, aby był dostępny.
+	Its command-line tool isn't installed yet.	Narzędzie wiersza poleceń tej aplikacji nie jest jeszcze zainstalowane.
+	Address	Adres
+	Copy	Kopiuj
+	Copied to the clipboard	Skopiowano do schowka
+	Work folder	Folder roboczy
+	Space used	Zajęte miejsce
+	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	Działa na plikach w swoim folderze roboczym na serwerze, a nie na dokumentach otwartych w przeglądarkach odwiedzających.
+	Turn on the MCP server	Włącz serwer MCP
+	When off, no app can be reached, whatever its own switch says.	Gdy jest wyłączony, żadna aplikacja nie jest dostępna, niezależnie od jej własnego przełącznika.
+	Apps on MCP	Aplikacje w MCP
+	No app is on yet.	Żadna aplikacja nie jest jeszcze włączona.
+	Empty	Opróżnij
+	Turn an app on or off in its details.	Aplikację włączysz lub wyłączysz w jej szczegółach.
+	Delete files not changed for	Usuwaj pliki niezmieniane przez
+	Never	Nigdy
+	Space per app	Miejsce na aplikację
+	Sessions at once	Sesje jednocześnie
+	Access tokens	Tokeny dostępu
+	New token	Nowy token
+	No tokens yet.	Nie ma jeszcze tokenów.
+	All apps	Wszystkie aplikacje
+	Used {ago}	Użyto {ago}
+	Not used yet	Jeszcze nieużywany
+	Revoke	Unieważnij
+	A token is shown only once, when it's made; the server keeps only its fingerprint. Give each client its own token, so you can revoke one without touching the others.	Token jest pokazywany tylko raz, przy tworzeniu; serwer przechowuje tylko jego odcisk. Daj każdemu klientowi osobny token, aby móc unieważnić jeden bez ruszania pozostałych.
+	New MCP token	Nowy token MCP
+	Allowed apps	Dozwolone aplikacje
+	Create	Utwórz
+	Copy it now: it won't be shown again.	Skopiuj go teraz: nie zostanie pokazany ponownie.
+	Token	Token
+	For Claude Code	Dla Claude Code
+	For other MCP clients, add a remote server with the app's address and the header Authorization: Bearer followed by this token.	W innych klientach MCP dodaj serwer zdalny z adresem aplikacji i nagłówkiem Authorization: Bearer, po którym następuje ten token.
+	I've copied the token	Token skopiowany
+	Its MCP work folder on the server is deleted too.	Jej folder roboczy MCP na serwerze również zostanie usunięty.
+@plural	{n} day|{n} days	{n} dzień|{n} dni|{n} dni
+@msg	{name}: MCP server ready	{name}: serwer MCP gotowy

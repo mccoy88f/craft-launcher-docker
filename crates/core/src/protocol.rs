@@ -51,6 +51,8 @@ pub enum Command {
     },
     /// Change how the backend behaves.
     Configure(BackendOptions),
+    /// Change a launcher server's MCP server (its administrator only).
+    Mcp(crate::hosted::McpChange),
 }
 
 /// Settings the backend needs.
@@ -200,6 +202,10 @@ pub enum Event {
         key: String,
         result: Result<Vec<u8>, String>,
     },
+    /// A launcher server's MCP server, for its administrator (replaces any earlier state).
+    Mcp(crate::hosted::McpState),
+    /// A new MCP access token's secret, shown once.
+    McpTokenCreated(String),
     CheckStarted,
     CheckFinished {
         /// Unix seconds.

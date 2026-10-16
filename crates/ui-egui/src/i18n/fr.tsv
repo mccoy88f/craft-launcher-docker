@@ -342,3 +342,45 @@ filter	Installed	Installées
 	Loading pictures…	Chargement des images…
 	Pictures couldn't be loaded. Reopen this page to try again.	Impossible de charger les images. Rouvrir la page permet de réessayer.
 @plural	ArtCraft Launcher · {n} update available|ArtCraft Launcher · {n} updates available	ArtCraft Launcher · {n} mise à jour disponible|ArtCraft Launcher · {n} mises à jour disponibles
+
+# A launcher server's MCP server (Settings, an app's details, the access-token dialogs).
+	MCP server	Serveur MCP
+	Control {name} from Claude or other MCP clients	Pilotez {name} depuis Claude ou d'autres clients MCP
+	MCP server for {name}	Serveur MCP pour {name}
+	Turn on the MCP server in Settings to reach it.	Activez le serveur MCP dans les Réglages pour y accéder.
+	Its command-line tool isn't installed yet.	Son outil en ligne de commande n'est pas encore installé.
+	Address	Adresse
+	Copy	Copier
+	Copied to the clipboard	Copié dans le presse-papiers
+	Work folder	Dossier de travail
+	Space used	Espace utilisé
+	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	Il travaille sur les fichiers de son dossier de travail sur le serveur, pas sur les documents ouverts dans le navigateur des visiteurs.
+	Turn on the MCP server	Activer le serveur MCP
+	When off, no app can be reached, whatever its own switch says.	Désactivé, aucune application n'est accessible, quel que soit son propre interrupteur.
+	Apps on MCP	Applications sur MCP
+	No app is on yet.	Aucune application activée pour l'instant.
+	Empty	Vider
+	Turn an app on or off in its details.	Activez ou désactivez une application depuis ses détails.
+	Delete files not changed for	Supprimer les fichiers inchangés depuis
+	Never	Jamais
+	Space per app	Espace par application
+	Sessions at once	Sessions simultanées
+	Access tokens	Jetons d'accès
+	New token	Nouveau jeton
+	No tokens yet.	Aucun jeton pour l'instant.
+	All apps	Toutes les applications
+	Used {ago}	Utilisé {ago}
+	Not used yet	Jamais utilisé
+	Revoke	Révoquer
+	A token is shown only once, when it's made; the server keeps only its fingerprint. Give each client its own token, so you can revoke one without touching the others.	Un jeton n'est affiché qu'une fois, à sa création ; le serveur n'en garde que l'empreinte. Donnez à chaque client son propre jeton, pour pouvoir en révoquer un sans toucher aux autres.
+	New MCP token	Nouveau jeton MCP
+	Allowed apps	Applications autorisées
+	Create	Créer
+	Copy it now: it won't be shown again.	Copiez-le maintenant : il ne sera plus affiché.
+	Token	Jeton
+	For Claude Code	Pour Claude Code
+	For other MCP clients, add a remote server with the app's address and the header Authorization: Bearer followed by this token.	Pour les autres clients MCP, ajoutez un serveur distant avec l'adresse de l'application et l'en-tête Authorization: Bearer suivi de ce jeton.
+	I've copied the token	J'ai copié le jeton
+	Its MCP work folder on the server is deleted too.	Son dossier de travail MCP sur le serveur est aussi supprimé.
+@plural	{n} day|{n} days	{n} jour|{n} jours
+@msg	{name}: MCP server ready	{name} : serveur MCP prêt

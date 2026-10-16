@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use artcraft_launcher_core::hosted::{REQUEST_HEADER, Releases, ServerState};
+use artcraft_launcher_core::hosted::{McpAnswer, McpChange, McpState, REQUEST_HEADER, Releases, ServerState};
 use artcraft_launcher_core::protocol::{Backend, Capabilities, Command, Event, LatestRelease, Origin, Source};
 use artcraft_launcher_core::{Platform, SUITE, version};
 use wasm_bindgen::JsCast;
@@ -136,6 +136,41 @@ impl ServerBackend {
         });
     }
 
+    /// Asks the server to change its MCP server (the administrator's page only).
+    fn mcp(&self, change: McpChange) {
+        if !self.admin {
+            return;
+        }
+        let Ok(body) = serde_json::to_string(&change) else { return };
+        let label = match &change {
+            McpChange::App { app, .. } | McpChange::Empty { app } => app.clone(),
+            _ => "mcp".to_string(),
+        };
+        let (seen, events, ctx) = (self.seen.clone(), self.events.clone(), self.ctx.clone());
+        wasm_bindgen_futures::spawn_local(async move {
+            let answer = request_with("POST", "api/mcp", Some(&body)).await;
+            let mut seen = seen.borrow_mut();
+            let mut events = events.borrow_mut();
+            match answer {
+                Ok((200, text)) => {
+                    if let Ok(answer) = serde_json::from_str::<McpAnswer>(&text) {
+                        seen.asked_at = js_sys::Date::now();
+                        apply(&mut seen, answer.state, &mut events, false);
+                        if let Some(token) = answer.token {
+                            events.push(Event::McpTokenCreated(token));
+                        }
+                    }
+                }
+                Ok((status, text)) => {
+                    let why = if text.trim().is_empty() { format!("the launcher server answered HTTP {status}") } else { text.trim().to_string() };
+                    events.push(Event::JobFinished { app: label, result: Err(why) });
+                }
+                Err(why) => events.push(Event::JobFinished { app: label, result: Err(why) }),
+            }
+            ctx.request_repaint();
+        });
+    }
+
     fn check(&self, force: bool) {
         if self.checking.replace(true) {
             return;
@@ -208,7 +243,20 @@ fn apply(seen: &mut Seen, state: ServerState, events: &mut Vec<Event>, first: bo
             events.push(Event::Progress { app: app.id.clone(), phase });
         }
     }
+    if let Some(mcp) = &state.mcp
+        && (first || seen.state.mcp.as_ref() != Some(mcp))
+    {
+        events.push(Event::Mcp(McpState { base_url: absolute(&mcp.base_url), ..mcp.clone() }));
+    }
     seen.state = state;
+}
+
+/// `url` resolved against the page's address (`../mcp/` → `https://example.com/mcp/`).
+fn absolute(url: &str) -> String {
+    web_sys::window()
+        .and_then(|w| w.location().href().ok())
+        .and_then(|base| web_sys::Url::new_with_base(url, &base).ok())
+        .map_or_else(|| url.to_string(), |u| u.href())
 }
 
 impl Backend for ServerBackend {
@@ -237,6 +285,7 @@ impl Backend for ServerBackend {
                     self.check(false);
                 }
             }
+            Command::Mcp(change) => self.mcp(change),
             Command::Reveal { .. } | Command::UpdateLauncher => {}
         }
     }
@@ -278,13 +327,24 @@ fn open_app_window(app: &str, url: &str) -> bool {
 /// One request to the launcher server: its status and body. The browser sends the
 /// administrator's sign-in along by itself (same origin, under `admin/`).
 async fn request(method: &str, url: &str) -> Result<(u16, String), String> {
+    request_with(method, url, None).await
+}
+
+/// [`request`] with a JSON body.
+async fn request_with(method: &str, url: &str, body: Option<&str>) -> Result<(u16, String), String> {
     let offline = || "couldn't reach the launcher server".to_string();
     let window = web_sys::window().ok_or_else(offline)?;
     let init = web_sys::RequestInit::new();
     init.set_method(method);
     init.set_mode(web_sys::RequestMode::SameOrigin);
+    if let Some(body) = body {
+        init.set_body(&wasm_bindgen::JsValue::from_str(body));
+    }
     let request = web_sys::Request::new_with_str_and_init(url, &init).map_err(|_| offline())?;
     let _ = request.headers().set("Accept", "application/json");
+    if body.is_some() {
+        let _ = request.headers().set("Content-Type", "application/json");
+    }
     if method != "GET" {
         let _ = request.headers().set(REQUEST_HEADER, "1");
     }

@@ -6,6 +6,9 @@
 //! ```text
 //! apps/<app>/installed.json   which version is installed, and in which folder
 //! apps/<app>/<version>-<n>/   the unpacked site (index.html at its top)
+//! apps/<app>/cli-<version>-<n>/<app>-cli
+//!                             the app's command-line tool, for its MCP server (from the app's
+//!                             Linux tarball, only when its MCP server is on); never served
 //! cache/downloads/            zips being downloaded (a paused one resumes from here)
 //! ```
 //!
@@ -20,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use artcraft_launcher_core::catalog::{CraftApp, SUITE};
 use artcraft_launcher_core::hosted::{FinishedJob, HostedApp, ServerState};
-use artcraft_launcher_core::platform::web_bundle;
+use artcraft_launcher_core::platform::{PackageKind, Platform, pick_asset, web_bundle};
 use artcraft_launcher_core::protocol::{CANCELLED, JobPhase, PAUSED, PausedDownload};
 use artcraft_launcher_core::release::{self, Release};
 use artcraft_launcher_core::status::{InstallSource, Installed};
@@ -32,6 +35,8 @@ use serde::{Deserialize, Serialize};
 const MAX_UNPACKED: u64 = 2 << 30;
 /// Nor have more files than this.
 const MAX_FILES: usize = 50_000;
+/// An app's command-line tool may not be bigger than this.
+const MAX_CLI: u64 = 512 << 20;
 const RECORD: &str = "installed.json";
 
 /// What `installed.json` says.
@@ -46,6 +51,9 @@ pub struct Record {
     pub asset: String,
     /// Unix seconds.
     pub installed_at: i64,
+    /// The command-line tool, relative to `apps/<app>/` (`cli-0.8.2-1/photocraft-cli`).
+    #[serde(default)]
+    pub cli: Option<String>,
 }
 
 /// A download kept for later: paused, or stopped by a lost connection.
@@ -126,7 +134,7 @@ impl Hosting {
                 }
             })
             .collect();
-        ServerState { admin, apps_url: apps_url.to_string(), apps }
+        ServerState { admin, apps_url: apps_url.to_string(), apps, mcp: None }
     }
 
     /// The folder serving `app`, when it's installed.
@@ -136,13 +144,42 @@ impl Hosting {
         Some(self.apps_dir.join(app).join(&record.dir))
     }
 
-    /// Starts installing (or updating to) `release` of `app` on a worker thread.
-    pub fn install(self: &Arc<Self>, app: &'static CraftApp, release: Release) -> Result<(), String> {
+    /// The app's command-line tool, when it's installed.
+    pub fn cli(&self, app: &str) -> Option<PathBuf> {
+        let inner = self.lock();
+        let record = inner.apps.get(app)?.record.as_ref()?;
+        let path = self.apps_dir.join(app).join(record.cli.as_ref()?);
+        path.is_file().then_some(path)
+    }
+
+    /// Starts installing (or updating to) `release` of `app` on a worker thread; `with_cli`: its
+    /// command-line tool too (its MCP server is on).
+    pub fn install(self: &Arc<Self>, app: &'static CraftApp, release: Release, with_cli: bool) -> Result<(), String> {
         let stop = self.begin(app, JobPhase::Downloading { done: 0, total: 0 })?;
         let this = self.clone();
         std::thread::spawn(move || {
             let mut kept = None;
-            let result = this.run_install(app, &release, &stop, &mut kept);
+            let result = this.run_install(app, &release, with_cli, &stop, &mut kept);
+            this.finish(app, result, kept);
+        });
+        Ok(())
+    }
+
+    /// Starts fetching the command-line tool of the installed version of `app`, for its MCP
+    /// server; `release` must be that version's.
+    pub fn install_cli(self: &Arc<Self>, app: &'static CraftApp, release: Release) -> Result<(), String> {
+        let Some(record) = self.lock().apps.get(app.id).and_then(|s| s.record.clone()) else {
+            return Err(format!("{} isn't installed", app.name));
+        };
+        let latest = release.version.as_ref().map_or_else(|| release.tag.clone(), ToString::to_string);
+        if latest != record.version {
+            return Err(format!("Update {} to {latest} first: its MCP server comes with the latest release", app.name));
+        }
+        let stop = self.begin(app, JobPhase::Downloading { done: 0, total: 0 })?;
+        let this = self.clone();
+        std::thread::spawn(move || {
+            let mut kept = None;
+            let result = this.run_install_cli(app, &release, record, &stop, &mut kept);
             this.finish(app, result, kept);
         });
         Ok(())
@@ -234,10 +271,9 @@ impl Hosting {
         }
     }
 
-    fn run_install(&self, app: &'static CraftApp, release: &Release, stop: &Stop, kept: &mut Option<Kept>) -> Result<String, String> {
-        let stems: Vec<&str> = app.stems().collect();
-        let label = release.version_label();
-        let asset = web_bundle(release, &stems).ok_or_else(|| format!("{} {label} has no browser version", app.name))?;
+    /// Downloads `asset` of `release` into the download folder, checked against its published
+    /// checksum, reporting progress on `app`'s job.
+    fn download(&self, app: &CraftApp, release: &Release, asset: &release::Asset, stop: &Stop, kept: &mut Option<Kept>) -> Result<PathBuf, String> {
         let sha256 = match &asset.sha256 {
             Some(h) => h.clone(),
             None => self.published_checksum(release, &asset.name)?,
@@ -260,6 +296,14 @@ impl Hosting {
         };
         self.http.download(&asset.url, &file, asset.size, &sha256, stop, &mut progress)?;
         stop.check()?;
+        Ok(file)
+    }
+
+    fn run_install(&self, app: &'static CraftApp, release: &Release, with_cli: bool, stop: &Stop, kept: &mut Option<Kept>) -> Result<String, String> {
+        let stems: Vec<&str> = app.stems().collect();
+        let label = release.version_label();
+        let asset = web_bundle(release, &stems).ok_or_else(|| format!("{} {label} has no browser version", app.name))?;
+        let file = self.download(app, release, asset, stop, kept)?;
         self.set_phase(app.id, JobPhase::Installing);
 
         let app_dir = self.apps_dir.join(app.id);
@@ -274,25 +318,90 @@ impl Hosting {
         }
         let target = app_dir.join(&dir);
         std::fs::rename(&staging, &target).map_err(|e| format!("couldn't move the app into place ({e})"))?;
+        let _ = std::fs::remove_file(&file);
+        *kept = None;
+        // The MCP server's tool, for the same release, before the record switches over, so the
+        // new version is never on without it. Failing it doesn't undo the app.
+        let mut cli_note = String::new();
+        let cli = if with_cli {
+            match self.fetch_cli(app, release, &app_dir, &format!("cli-{dir}"), stop, kept) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    log::warn!("{}: no MCP server: {e}", app.name);
+                    cli_note = format!(" (its MCP server couldn't be installed: {e})");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let record = Record {
             version: release.version.as_ref().map_or_else(|| release.tag.clone(), ToString::to_string),
             tag: release.tag.clone(),
             dir: dir.clone(),
             asset: asset.name.clone(),
             installed_at: artcraft_launcher_native::now(),
+            cli,
         };
+        self.save_record(app, &app_dir, record)?;
+        // Keep the folder visitors may still be loading from; older ones go.
+        let previous_dir = previous.as_ref().map_or("", |p| p.dir.as_str());
+        prune(&app_dir, &[dir.as_str(), previous_dir, &format!("cli-{dir}")]);
+        let verb = if previous.is_some() { "updated to" } else { "installed:" };
+        log::info!("{} {verb} {label}", app.name);
+        Ok(format!("{} {verb} {label}{cli_note}", app.name))
+    }
+
+    fn run_install_cli(
+        &self,
+        app: &'static CraftApp,
+        release: &Release,
+        mut record: Record,
+        stop: &Stop,
+        kept: &mut Option<Kept>,
+    ) -> Result<String, String> {
+        let app_dir = self.apps_dir.join(app.id);
+        let folder = format!("cli-{}", record.dir);
+        record.cli = Some(self.fetch_cli(app, release, &app_dir, &folder, stop, kept)?);
+        self.save_record(app, &app_dir, record)?;
+        log::info!("{}: MCP server ready", app.name);
+        Ok(format!("{}: MCP server ready", app.name))
+    }
+
+    fn save_record(&self, app: &CraftApp, app_dir: &Path, record: Record) -> Result<(), String> {
         let json = serde_json::to_vec_pretty(&record).map_err(|e| format!("couldn't write the install record ({e})"))?;
         artcraft_launcher_native::paths::write_atomic(&app_dir.join(RECORD), &json)?;
         if let Some(slot) = self.lock().apps.get_mut(app.id) {
             slot.record = Some(record);
         }
-        // Keep the folder visitors may still be loading from; older ones go.
-        prune(&app_dir, &[dir.as_str(), previous.as_ref().map_or("", |p| p.dir.as_str())]);
+        Ok(())
+    }
+
+    /// Downloads the release's Linux tarball for this machine and keeps only the app's
+    /// command-line tool, as `<folder>/<stem>-cli` under `app_dir`; returns that path relative
+    /// to `app_dir`.
+    fn fetch_cli(
+        &self,
+        app: &CraftApp,
+        release: &Release,
+        app_dir: &Path,
+        folder: &str,
+        stop: &Stop,
+        kept: &mut Option<Kept>,
+    ) -> Result<String, String> {
+        let stems: Vec<&str> = app.stems().collect();
+        let platform = Platform::current().ok_or("this server's system has no Craft App builds")?;
+        let (asset, _) = pick_asset(release, &stems, platform, &[PackageKind::TarGz])
+            .ok_or_else(|| format!("{} {} has no Linux tarball for {}", app.name, release.version_label(), platform.label()))?;
+        self.set_phase(app.id, JobPhase::Downloading { done: 0, total: asset.size });
+        let file = self.download(app, release, asset, stop, kept)?;
+        self.set_phase(app.id, JobPhase::Installing);
+        let dest = app_dir.join(folder);
+        let _ = std::fs::remove_dir_all(&dest);
+        let name = extract_cli(&file, &stems, &dest)?;
         let _ = std::fs::remove_file(&file);
         *kept = None;
-        let verb = if previous.is_some() { "updated to" } else { "installed:" };
-        log::info!("{} {verb} {label}", app.name);
-        Ok(format!("{} {verb} {label}", app.name))
+        Ok(format!("{folder}/{name}"))
     }
 
     /// The checksum `SHA256SUMS.txt` publishes for `name`. Nothing is installed without one.
@@ -308,8 +417,48 @@ fn read_record(app_dir: &Path) -> Option<Record> {
     let bytes = std::fs::read(app_dir.join(RECORD)).ok()?;
     let record: Record = serde_json::from_slice(&bytes).ok()?;
     // Only a plain folder name of our own, which still holds the site.
-    let plain = !record.dir.is_empty() && !record.dir.starts_with('.') && Path::new(&record.dir).components().count() == 1;
-    (plain && app_dir.join(&record.dir).join("index.html").is_file()).then_some(record)
+    let plain = |p: &str| !p.is_empty() && !p.starts_with('.') && Path::new(p).components().all(|c| matches!(c, Component::Normal(_)));
+    let mut record = record;
+    if record.cli.as_deref().is_some_and(|c| !plain(c) || Path::new(c).components().count() != 2) {
+        record.cli = None;
+    }
+    (plain(&record.dir) && Path::new(&record.dir).components().count() == 1 && app_dir.join(&record.dir).join("index.html").is_file())
+        .then_some(record)
+}
+
+/// Takes `<top>/bin/<stem>-cli` out of an app's Linux tarball into `dest`, executable; returns its
+/// file name. Nothing else is unpacked.
+fn extract_cli(tarball: &Path, stems: &[&str], dest: &Path) -> Result<String, String> {
+    let file = std::fs::File::open(tarball).map_err(|e| format!("couldn't open {} ({e})", tarball.display()))?;
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    let entries = archive.entries().map_err(|e| format!("the tarball isn't readable ({e})"))?;
+    for entry in entries {
+        let mut entry = entry.map_err(|e| format!("the tarball isn't readable ({e})"))?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        let path = entry.path().map_err(|e| format!("the tarball isn't readable ({e})"))?.into_owned();
+        let parts: Vec<&std::ffi::OsStr> = path.components().filter_map(|c| if let Component::Normal(p) = c { Some(p) } else { None }).collect();
+        let Some(name) = parts.last().and_then(|n| n.to_str()).map(str::to_string) else { continue };
+        let in_bin = parts.len() >= 2 && parts.get(parts.len() - 2).is_some_and(|p| *p == "bin");
+        if !in_bin || !stems.iter().any(|s| name == format!("{s}-cli")) {
+            continue;
+        }
+        if entry.size() > MAX_CLI {
+            return Err(format!("{name} is bigger than {} MB", MAX_CLI >> 20));
+        }
+        std::fs::create_dir_all(dest).map_err(|e| format!("couldn't create {} ({e})", dest.display()))?;
+        let out = dest.join(&name);
+        let mut f = std::fs::File::create(&out).map_err(|e| format!("couldn't write {} ({e})", out.display()))?;
+        std::io::copy(&mut std::io::Read::take(&mut entry, MAX_CLI), &mut f).map_err(|e| format!("couldn't unpack {name} ({e})"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o755)).map_err(|e| format!("couldn't make {name} runnable ({e})"))?;
+        }
+        return Ok(name);
+    }
+    Err(format!("the tarball has no bin/{}-cli", stems.first().copied().unwrap_or("app")))
 }
 
 /// A new folder for `label`: `0.8.2-1`, `0.8.2-2`… whichever is free.
@@ -451,6 +600,33 @@ mod tests {
     }
 
     #[test]
+    fn takes_only_the_command_line_tool_out_of_the_tarball() {
+        let tarball = tempfile::NamedTempFile::new().unwrap();
+        {
+            let gz = flate2::write::GzEncoder::new(tarball.reopen().unwrap(), flate2::Compression::fast());
+            let mut b = tar::Builder::new(gz);
+            for (path, data) in [
+                ("photocraft-0.8.2-linux-x86_64/bin/photocraft", &b"gui"[..]),
+                ("photocraft-0.8.2-linux-x86_64/bin/photocraft-cli", &b"cli"[..]),
+                ("photocraft-0.8.2-linux-x86_64/share/doc/readme", &b"doc"[..]),
+            ] {
+                let mut h = tar::Header::new_gnu();
+                h.set_size(data.len() as u64);
+                h.set_mode(0o644);
+                h.set_cksum();
+                b.append_data(&mut h, path, data).unwrap();
+            }
+            b.into_inner().unwrap().finish().unwrap();
+        }
+        let dest = tempfile::tempdir().unwrap();
+        let name = extract_cli(tarball.path(), &["photocraft"], &dest.path().join("cli-0.8.2-1")).unwrap();
+        assert_eq!(name, "photocraft-cli");
+        assert_eq!(std::fs::read(dest.path().join("cli-0.8.2-1/photocraft-cli")).unwrap(), b"cli");
+        assert!(!dest.path().join("cli-0.8.2-1/photocraft").exists());
+        assert!(extract_cli(tarball.path(), &["vectorcraft"], &dest.path().join("x")).unwrap_err().contains("bin/vectorcraft-cli"));
+    }
+
+    #[test]
     fn names_version_folders_and_prunes_old_ones() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(folder_name("0.8.2", dir.path()), "0.8.2-1");
@@ -471,7 +647,7 @@ mod tests {
     fn reads_only_records_that_point_at_a_site() {
         let dir = tempfile::tempdir().unwrap();
         let record = |d: &str| {
-            let r = Record { version: "0.8.2".into(), tag: "v0.8.2".into(), dir: d.into(), asset: "a.zip".into(), installed_at: 0 };
+            let r = Record { version: "0.8.2".into(), tag: "v0.8.2".into(), dir: d.into(), asset: "a.zip".into(), installed_at: 0, cli: None };
             std::fs::write(dir.path().join(RECORD), serde_json::to_vec(&r).unwrap()).unwrap();
         };
         record("0.8.2-1");

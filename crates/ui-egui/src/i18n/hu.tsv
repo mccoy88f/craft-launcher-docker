@@ -345,3 +345,45 @@ filter	Installed	Telepítve
 	ArtCraft on GitHub	ArtCraft a GitHubon
 	Join the ArtCraft Discord	Csatlakozás az ArtCraft Discord-közösségéhez
 @plural	ArtCraft Launcher · {n} update available|ArtCraft Launcher · {n} updates available	ArtCraft Launcher · {n} frissítés elérhető|ArtCraft Launcher · {n} frissítés elérhető
+
+# A launcher server's MCP server (Settings, an app's details, the access-token dialogs).
+	MCP server	MCP-szerver
+	Control {name} from Claude or other MCP clients	Vezéreld a(z) {name} alkalmazást a Claude-ból vagy más MCP-kliensekből
+	MCP server for {name}	MCP-szerver: {name}
+	Turn on the MCP server in Settings to reach it.	Kapcsold be az MCP-szervert a Beállításokban, hogy elérhető legyen.
+	Its command-line tool isn't installed yet.	Az alkalmazás parancssori eszköze még nincs telepítve.
+	Address	Cím
+	Copy	Másolás
+	Copied to the clipboard	A vágólapra másolva
+	Work folder	Munkamappa
+	Space used	Felhasznált hely
+	It works on the files in its work folder on the server, not on documents open in visitors' browsers.	A szerveren lévő munkamappája fájljaival dolgozik, nem a látogatók böngészőjében megnyitott dokumentumokkal.
+	Turn on the MCP server	Az MCP-szerver bekapcsolása
+	When off, no app can be reached, whatever its own switch says.	Kikapcsolva egyik alkalmazás sem érhető el, akármit mutat a saját kapcsolója.
+	Apps on MCP	Alkalmazások MCP-n
+	No app is on yet.	Még egy alkalmazás sincs bekapcsolva.
+	Empty	Ürítés
+	Turn an app on or off in its details.	Egy alkalmazást a részleteinél kapcsolhatsz be vagy ki.
+	Delete files not changed for	Változatlan fájlok törlése ennyi idő után:
+	Never	Soha
+	Space per app	Hely alkalmazásonként
+	Sessions at once	Egyidejű munkamenetek
+	Access tokens	Hozzáférési tokenek
+	New token	Új token
+	No tokens yet.	Még nincs token.
+	All apps	Minden alkalmazás
+	Used {ago}	Használva: {ago}
+	Not used yet	Még nem használt
+	Revoke	Visszavonás
+	A token is shown only once, when it's made; the server keeps only its fingerprint. Give each client its own token, so you can revoke one without touching the others.	A token csak egyszer, a létrehozásakor látható; a szerver csak az ujjlenyomatát őrzi meg. Minden kliens kapjon saját tokent, így egyet visszavonhatsz a többi érintése nélkül.
+	New MCP token	Új MCP-token
+	Allowed apps	Engedélyezett alkalmazások
+	Create	Létrehozás
+	Copy it now: it won't be shown again.	Másold ki most: többé nem jelenik meg.
+	Token	Token
+	For Claude Code	Claude Code-hoz
+	For other MCP clients, add a remote server with the app's address and the header Authorization: Bearer followed by this token.	Más MCP-kliensekben adj hozzá egy távoli szervert az alkalmazás címével és az Authorization: Bearer fejléccel, utána ezzel a tokennel.
+	I've copied the token	Kimásoltam a tokent
+	Its MCP work folder on the server is deleted too.	A szerveren lévő MCP-munkamappája is törlődik.
+@plural	{n} day|{n} days	{n} nap|{n} nap
+@msg	{name}: MCP server ready	{name}: az MCP-szerver kész

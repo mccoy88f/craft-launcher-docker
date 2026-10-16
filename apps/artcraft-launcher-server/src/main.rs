@@ -8,12 +8,16 @@
 //! - `/admin/` is the same launcher for the administrator (HTTP Basic sign-in with
 //!   `ARTCRAFT_ADMIN_PASSWORD`), who can install, update and remove apps.
 //!
+//! - `/mcp/<app>` is an app's MCP server, for MCP clients with an access token, when the
+//!   administrator turned it on (`mcp.rs`).
+//!
 //! The API both pages use is described in `artcraft_launcher_core::hosted`.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod auth;
 mod hosting;
+mod mcp;
 mod releases;
 mod routes;
 
@@ -25,6 +29,7 @@ use std::time::Duration;
 /// Everything a request handler can reach.
 pub struct Server {
     pub hosting: Arc<hosting::Hosting>,
+    pub mcp: Arc<mcp::Mcp>,
     pub releases: releases::Releases,
     /// The launcher's web build (`index.html`, its `.js` and `.wasm`).
     pub web_dir: PathBuf,
@@ -36,6 +41,7 @@ struct Config {
     listen: SocketAddr,
     data: PathBuf,
     web: PathBuf,
+    work: PathBuf,
     admin: Option<auth::Admin>,
     check_every: Duration,
 }
@@ -70,6 +76,7 @@ impl Config {
             listen,
             data: env("ARTCRAFT_DATA_DIR").map_or_else(|| PathBuf::from("/data"), PathBuf::from),
             web: env("ARTCRAFT_WEB_DIR").map_or_else(|| PathBuf::from("/srv/artcraft-launcher"), PathBuf::from),
+            work: env("ARTCRAFT_WORK_DIR").map_or_else(|| PathBuf::from("/work"), PathBuf::from),
             admin,
             check_every: Duration::from_secs(minutes * 60),
         })
@@ -95,15 +102,25 @@ fn run() -> Result<(), String> {
     let http = artcraft_launcher_native::http::Http::new()?;
     let hosting = Arc::new(hosting::Hosting::open(&config.data, http.clone())?);
     let releases = releases::Releases::new(http, &config.data, config.check_every);
+    let mcp = Arc::new(mcp::Mcp::open(&config.data, config.work.clone())?);
     match &config.admin {
         Some(a) => log::info!("administrator page at /admin/ (user {})", a.user()),
         None => log::warn!("ARTCRAFT_ADMIN_PASSWORD isn't set: apps can be opened, but nobody can install, update or remove them"),
     }
-    let server = Arc::new(Server { hosting, releases, web_dir: config.web, admin: config.admin });
+    let server = Arc::new(Server { hosting, mcp, releases, web_dir: config.web, admin: config.admin });
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| format!("couldn't start ({e})"))?;
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(config.listen).await.map_err(|e| format!("couldn't listen on {} ({e})", config.listen))?;
         log::info!("ArtCraft Launcher server listening on http://{}", config.listen);
+        let upkeep = server.mcp.clone();
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                every.tick().await;
+                let mcp = upkeep.clone();
+                let _ = tokio::task::spawn_blocking(move || mcp.maintain()).await;
+            }
+        });
         axum::serve(listener, routes::router(server)).with_graceful_shutdown(shutdown()).await.map_err(|e| format!("the server stopped ({e})"))
     })
 }

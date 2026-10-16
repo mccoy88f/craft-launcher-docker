@@ -342,11 +342,16 @@ dependencies = [
  "artcraft-launcher-native",
  "axum",
  "base64 0.22.1",
+ "flate2",
+ "getrandom 0.3.4",
  "log",
  "serde",
  "serde_json",
+ "sha2",
+ "tar",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
  "zip",
@@ -4844,6 +4849,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]

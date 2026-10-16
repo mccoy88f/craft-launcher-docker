@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use artcraft_launcher_core::catalog::CraftApp;
-use artcraft_launcher_core::hosted::REQUEST_HEADER;
-use axum::body::Body;
-use axum::extract::{Path, Query, Request, State};
+use artcraft_launcher_core::hosted::{McpAnswer, McpChange, REQUEST_HEADER, ServerState};
+use axum::body::{Body, Bytes};
+use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -19,6 +19,7 @@ use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
 use crate::Server;
+use crate::mcp::{self, Refusal};
 
 type Shared = Arc<Server>;
 
@@ -27,6 +28,7 @@ pub fn router(server: Shared) -> Router {
         .route("/admin/api/state", get(admin_state))
         .route("/admin/api/releases", get(admin_releases))
         .route("/admin/api/apps/{app}/{action}", post(action))
+        .route("/admin/api/mcp", post(mcp_change))
         .route("/admin/", get(admin_page))
         .route("/admin/{*path}", get(admin_page))
         .route_layer(middleware::from_fn_with_state(server.clone(), require_admin));
@@ -41,6 +43,7 @@ pub fn router(server: Shared) -> Router {
         .route("/admin/manifest.webmanifest", get(admin_page))
         .route("/admin/256x256/{*path}", get(admin_page))
         .route("/admin/512x512/{*path}", get(admin_page))
+        .route("/mcp/{app}", post(mcp_post).get(mcp_get).delete(mcp_delete).layer(DefaultBodyLimit::max(32 << 20)))
         .route("/apps/{app}", get(app_redirect))
         .route("/apps/{app}/", get(app_file))
         .route("/apps/{app}/{*path}", get(app_file))
@@ -89,8 +92,15 @@ async fn public_state(State(server): State<Shared>) -> Response {
     no_store(Json(server.hosting.state(false, "apps/")).into_response())
 }
 
+/// The administrator's view: the apps, and the MCP server.
+fn admin_view(server: &Server) -> ServerState {
+    let mut state = server.hosting.state(true, "../apps/");
+    state.mcp = Some(server.mcp.state(&server.hosting, "../mcp/"));
+    state
+}
+
 async fn admin_state(State(server): State<Shared>) -> Response {
-    no_store(Json(server.hosting.state(true, "../apps/")).into_response())
+    no_store(Json(admin_view(&server)).into_response())
 }
 
 async fn public_releases(State(server): State<Shared>, Query(o): Query<Options>) -> Response {
@@ -112,10 +122,11 @@ async fn action(State(server): State<Shared>, Path((app, action)): Path<(String,
     };
     let result = match action.as_str() {
         "install" => match server.releases.latest(app.id, on(o.pre.as_ref())).await {
-            Ok(release) => server.hosting.install(app, release),
+            Ok(release) => server.hosting.install(app, release, server.mcp.app_on(app.id)),
             Err(e) => Err(e),
         },
-        "uninstall" => server.hosting.uninstall(app),
+        // The app's MCP work folder goes with it (the uninstall prompt says so).
+        "uninstall" => server.hosting.uninstall(app).map(|()| server.mcp.forget_app(app)),
         "pause" => {
             server.hosting.pause(app.id);
             Ok(())
@@ -127,8 +138,184 @@ async fn action(State(server): State<Shared>, Path((app, action)): Path<(String,
         _ => return (StatusCode::NOT_FOUND, "no such action").into_response(),
     };
     match result {
-        Ok(()) => no_store(Json(server.hosting.state(true, "../apps/")).into_response()),
+        Ok(()) => no_store(Json(admin_view(&server)).into_response()),
         Err(e) => no_store((StatusCode::CONFLICT, e).into_response()),
+    }
+}
+
+/// `POST /admin/api/mcp`: one [`McpChange`].
+async fn mcp_change(State(server): State<Shared>, headers: HeaderMap, Json(change): Json<McpChange>) -> Response {
+    if !headers.contains_key(REQUEST_HEADER) {
+        return (StatusCode::FORBIDDEN, "missing request header").into_response();
+    }
+    let mcp = &server.mcp;
+    let app = |id: &str| CraftApp::by_id(id).ok_or_else(|| "no such app".to_string());
+    let mut token = None;
+    let result: Result<(), String> = match change {
+        McpChange::Enabled { on } => {
+            mcp.set_enabled(on);
+            Ok(())
+        }
+        McpChange::RetentionDays { days } => mcp.set_retention(days),
+        McpChange::QuotaBytes { bytes } => mcp.set_quota(bytes),
+        McpChange::MaxSessions { sessions } => mcp.set_max_sessions(sessions),
+        McpChange::App { app: id, on } => match app(&id) {
+            Ok(a) if on && server.hosting.site(a.id).is_none() => Err(format!("install {} first", a.name)),
+            Ok(a) => match mcp.set_app(a, on) {
+                // Its command-line tool comes from the release of the installed version.
+                Ok(()) if on && server.hosting.cli(a.id).is_none() => match server.releases.latest(a.id, false).await {
+                    Ok(release) => server.hosting.install_cli(a, release),
+                    Err(e) => Err(e),
+                },
+                other => other,
+            },
+            Err(e) => Err(e),
+        },
+        McpChange::Empty { app: id } => app(&id).and_then(|a| mcp.empty(a)),
+        McpChange::CreateToken { name, apps } => mcp.create_token(&name, apps).map(|t| token = Some(t)),
+        McpChange::RevokeToken { id } => {
+            mcp.revoke_token(&id);
+            Ok(())
+        }
+    };
+    match result {
+        Ok(()) => no_store(Json(McpAnswer { state: admin_view(&server), token }).into_response()),
+        Err(e) => no_store((StatusCode::CONFLICT, e).into_response()),
+    }
+}
+
+const SESSION_HEADER: &str = "mcp-session-id";
+
+fn json_answer(status: StatusCode, body: String) -> Response {
+    (status, [(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], body).into_response()
+}
+
+/// Signs an MCP request in: the app, and the id of the token used.
+fn mcp_sign_in(server: &Server, app: &str, headers: &HeaderMap) -> Result<(&'static CraftApp, String), Box<Response>> {
+    // Browsers send Origin; a page on another site must not reach the MCP server (DNS rebinding).
+    if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
+        let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("");
+        if origin.split_once("://").map(|(_, h)| h) != Some(host) {
+            return Err(Box::new(json_answer(StatusCode::FORBIDDEN, mcp::rpc_error(None, -32600, "requests from other sites aren't allowed"))));
+        }
+    }
+    let Some(craft) = CraftApp::by_id(app) else {
+        return Err(Box::new(json_answer(StatusCode::NOT_FOUND, mcp::rpc_error(None, -32600, "no such app"))));
+    };
+    let authorization = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+    match server.mcp.authorize(authorization, craft.id, &server.hosting) {
+        Ok(token) => Ok((craft, token)),
+        Err(Refusal::SignIn) => Err(Box::new(
+            (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Bearer realm=\"ArtCraft Launcher MCP\"")],
+                mcp::rpc_error(None, -32001, "a valid access token is needed (Authorization: Bearer …)"),
+            )
+                .into_response(),
+        )),
+        Err(Refusal::Forbidden) => Err(Box::new(json_answer(StatusCode::FORBIDDEN, mcp::rpc_error(None, -32001, "this token may not use this app")))),
+        Err(Refusal::Off) => Err(Box::new(json_answer(StatusCode::NOT_FOUND, mcp::rpc_error(None, -32001, "this app's MCP server is off")))),
+    }
+}
+
+/// `POST /mcp/<app>`: one JSON-RPC message from an MCP client.
+async fn mcp_post(State(server): State<Shared>, Path(app): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
+    let (craft, token) = match mcp_sign_in(&server, &app, &headers) {
+        Ok(ok) => ok,
+        Err(refused) => return *refused,
+    };
+    let Ok(message) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return json_answer(StatusCode::BAD_REQUEST, mcp::rpc_error(None, -32700, "not JSON"));
+    };
+    if !message.is_object() {
+        return json_answer(StatusCode::BAD_REQUEST, mcp::rpc_error(None, -32600, "one JSON-RPC message per request"));
+    }
+    let id = message.get("id").filter(|_| message.get("method").is_some()).cloned();
+    let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
+    let session_id = headers.get(SESSION_HEADER).and_then(|v| v.to_str().ok()).map(str::to_string);
+
+    let (session, new) = if method == "initialize" && session_id.is_none() {
+        let Some(cli) = server.hosting.cli(craft.id) else {
+            return json_answer(StatusCode::NOT_FOUND, mcp::rpc_error(id.as_ref(), -32001, "this app's MCP server is off"));
+        };
+        match server.mcp.start(craft, token, &cli) {
+            Ok(s) => (s, true),
+            Err(e) => return json_answer(StatusCode::SERVICE_UNAVAILABLE, mcp::rpc_error(id.as_ref(), -32000, &e)),
+        }
+    } else {
+        let Some(sid) = session_id else {
+            return json_answer(StatusCode::BAD_REQUEST, mcp::rpc_error(id.as_ref(), -32600, "missing Mcp-Session-Id: initialize first"));
+        };
+        match server.mcp.session(&sid, craft.id, &token) {
+            Some(s) => (s, false),
+            // MCP clients start a new session when they get 404.
+            None => return json_answer(StatusCode::NOT_FOUND, mcp::rpc_error(id.as_ref(), -32001, "no such session: initialize again")),
+        }
+    };
+
+    if method == "tools/call"
+        && let Some((used, quota)) = server.mcp.over_quota(craft.id)
+    {
+        let text =
+            format!("the work folder is full ({} MB of {} MB): empty it, or raise the quota, in the launcher's settings", used >> 20, quota >> 20);
+        return json_answer(StatusCode::OK, mcp::rpc_error(id.as_ref(), -32000, &text));
+    }
+
+    let rx = match session.send(&message).await {
+        Ok(rx) => rx,
+        Err(e) => {
+            server.mcp.end_session(&session.id);
+            return json_answer(StatusCode::BAD_GATEWAY, mcp::rpc_error(id.as_ref(), -32000, &e));
+        }
+    };
+    let (Some(rx), Some(id)) = (rx, id) else {
+        // A notification or a client's answer: nothing comes back.
+        return StatusCode::ACCEPTED.into_response();
+    };
+    let mut response = if headers.get(header::ACCEPT).and_then(|v| v.to_str().ok()).is_some_and(|a| a.contains("text/event-stream")) {
+        // Everything the tool says until the answer, as it comes; the stream ends after the answer.
+        use tokio_stream::StreamExt;
+        let events = tokio_stream::wrappers::UnboundedReceiverStream::new(rx)
+            .map(|line| Ok::<_, std::convert::Infallible>(format!("event: message\ndata: {line}\n\n")));
+        (StatusCode::OK, [(header::CONTENT_TYPE, "text/event-stream"), (header::CACHE_CONTROL, "no-store")], Body::from_stream(events))
+            .into_response()
+    } else {
+        match mcp::answer(rx, &id).await {
+            Some(line) => json_answer(StatusCode::OK, line),
+            None => {
+                if new {
+                    server.mcp.end_session(&session.id);
+                }
+                json_answer(StatusCode::GATEWAY_TIMEOUT, mcp::rpc_error(Some(&id), -32000, "the app's MCP server didn't answer"))
+            }
+        }
+    };
+    if new && let Ok(value) = HeaderValue::from_str(&session.id) {
+        response.headers_mut().insert(SESSION_HEADER, value);
+    }
+    response
+}
+
+/// `GET /mcp/<app>`: no stream of messages the server starts on its own.
+async fn mcp_get() -> Response {
+    (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, "POST, DELETE")]).into_response()
+}
+
+/// `DELETE /mcp/<app>`: the client ends its session.
+async fn mcp_delete(State(server): State<Shared>, Path(app): Path<String>, headers: HeaderMap) -> Response {
+    let (craft, token) = match mcp_sign_in(&server, &app, &headers) {
+        Ok(ok) => ok,
+        Err(refused) => return *refused,
+    };
+    let Some(sid) = headers.get(SESSION_HEADER).and_then(|v| v.to_str().ok()) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    match server.mcp.session(sid, craft.id, &token) {
+        Some(s) => {
+            server.mcp.end_session(&s.id);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -199,6 +386,7 @@ mod tests {
         let http = artcraft_launcher_native::http::Http::new().unwrap();
         Arc::new(Server {
             hosting: Arc::new(hosting::Hosting::open(data, http.clone()).unwrap()),
+            mcp: Arc::new(crate::mcp::Mcp::open(data, data.join("work")).unwrap()),
             releases: releases::Releases::new(http, data, Duration::from_secs(1800)),
             web_dir: web.to_path_buf(),
             admin: password.map(|p| auth::Admin::new("admin".into(), p.into()).unwrap()),
@@ -229,7 +417,14 @@ mod tests {
         std::fs::create_dir_all(site.join("app")).unwrap();
         std::fs::write(site.join("index.html"), "photocraft").unwrap();
         std::fs::write(site.join("app/photocraft-web-abc.part-aa"), "parts").unwrap();
-        let record = hosting::Record { version: "0.8.2".into(), tag: "v0.8.2".into(), dir: "0.8.2-1".into(), asset: "a.zip".into(), installed_at: 0 };
+        let record = hosting::Record {
+            version: "0.8.2".into(),
+            tag: "v0.8.2".into(),
+            dir: "0.8.2-1".into(),
+            asset: "a.zip".into(),
+            installed_at: 0,
+            cli: None,
+        };
         std::fs::write(data.path().join("apps/photocraft/installed.json"), serde_json::to_vec(&record).unwrap()).unwrap();
         (web, data)
     }

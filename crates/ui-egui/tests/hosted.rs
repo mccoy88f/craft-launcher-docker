@@ -82,10 +82,45 @@ fn events() -> Vec<Event> {
     ev
 }
 
+/// The MCP server as an administrator's page gets it: PhotoCraft on, one token.
+fn mcp_event() -> Event {
+    use artcraft_launcher_core::hosted::{McpApp, McpState, McpToken};
+    Event::Mcp(McpState {
+        enabled: true,
+        retention_days: 7,
+        quota_bytes: 2 << 30,
+        max_sessions: 4,
+        base_url: "https://launcher.example.com/mcp/".into(),
+        apps: SUITE
+            .iter()
+            .map(|a| McpApp {
+                id: a.id.into(),
+                enabled: a.id == "photocraft",
+                ready: a.id == "photocraft",
+                work_dir: format!("/work/{}", a.id),
+                used_bytes: 3 << 20,
+                sessions: 0,
+            })
+            .collect(),
+        tokens: vec![McpToken {
+            id: "t1".into(),
+            name: "Claude Desktop".into(),
+            hint: "7f3a".into(),
+            apps: None,
+            created_at: NOW - 3600,
+            last_used: Some(NOW - 300),
+        }],
+    })
+}
+
 fn harness(admin: bool) -> (Harness<'static, Option<LauncherUi>>, Rc<RefCell<Vec<Command>>>) {
+    harness_with(admin, events())
+}
+
+fn harness_with(admin: bool, events: Vec<Event>) -> (Harness<'static, Option<LauncherUi>>, Rc<RefCell<Vec<Command>>>) {
     artcraft_launcher_ui_egui::i18n::set_test_lang(artcraft_launcher_ui_egui::i18n::Lang::EN);
     let sent = Rc::new(RefCell::new(Vec::new()));
-    let mut backend = Some(Hosted { events: events(), sent: sent.clone(), admin });
+    let mut backend = Some(Hosted { events, sent: sent.clone(), admin });
     let settings = Settings { view: ViewMode::Grid, notify: false, ..Settings::default() };
     let mut h = Harness::builder().with_size(egui::vec2(1180.0, 900.0)).build_ui_state(
         move |ui, state: &mut Option<LauncherUi>| {
@@ -134,4 +169,40 @@ fn the_administrator_installs_and_updates_browser_builds() {
     h.get_by_label("Install").click();
     h.run_steps(2);
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::Install { app } if app == "vectorcraft")), "{:?}", sent.borrow());
+}
+
+#[test]
+fn the_administrator_sees_and_changes_the_mcp_server() {
+    let mut events = events();
+    events.push(mcp_event());
+    let (mut h, sent) = harness_with(true, events);
+    // PhotoCraft's card says its MCP server is on.
+    assert_eq!(h.query_all_by_label("MCP").count(), 1);
+    h.get_by_label("Settings").click();
+    h.run_steps(4);
+    h.get_by_label("Turn on the MCP server");
+    h.get_by_label_contains("Claude Desktop");
+    h.get_by_label("Empty").click();
+    h.run_steps(2);
+    assert!(
+        sent.borrow().iter().any(|c| matches!(c, Command::Mcp(artcraft_launcher_core::hosted::McpChange::Empty { app }) if app == "photocraft")),
+        "{:?}",
+        sent.borrow()
+    );
+    h.get_by_label("New token").click();
+    h.run_steps(4);
+    h.get_by_label("New MCP token");
+}
+
+#[test]
+fn a_new_token_is_shown_once() {
+    let mut events = events();
+    events.push(mcp_event());
+    events.push(Event::McpTokenCreated("acl_secret1234".into()));
+    let (mut h, _) = harness_with(true, events);
+    h.get_by_label("acl_secret1234");
+    h.get_by_label_contains("claude mcp add --transport http photocraft https://launcher.example.com/mcp/photocraft");
+    h.get_by_label("I've copied the token").click();
+    h.run_steps(4);
+    assert!(h.query_by_label("acl_secret1234").is_none());
 }
