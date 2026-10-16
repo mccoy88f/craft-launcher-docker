@@ -454,18 +454,20 @@ impl Mcp {
         }
     }
 
-    /// Whether a command-line tool can be confined to a work folder: its `mcp --help` names
-    /// `--automation-read-root` (releases from before it reject the option and exit). Asked once
-    /// per tool; a tool that can't be confined is never run, since it could reach every file the
-    /// server can.
+    /// Whether a command-line tool can be confined to a work folder: started with
+    /// `--automation-read-root` and `--automation-write-root`, it answers `initialize` (releases
+    /// from before the options reject them and exit). Tried once per tool; one that can't be
+    /// confined is never run, since it could reach every file the server can.
     pub fn confinable(&self, cli: &Path) -> bool {
         if let Some(known) = self.confinable.lock().unwrap_or_else(PoisonError::into_inner).get(cli) {
             return *known;
         }
-        let answer = help_mentions(cli, "--automation-read-root");
-        if !answer {
-            log::warn!("{} can't be confined to a work folder (no --automation-read-root): it won't be run", cli.display());
+        let root = self.work_root.join(format!(".probe-{}", random_text(6).unwrap_or_default()));
+        let result = answers_confined(cli, &root);
+        if let Err(why) = &result {
+            log::warn!("{} can't be confined to a work folder, so it won't be run: {why}", cli.display());
         }
+        let answer = result.is_ok();
         self.confinable.lock().unwrap_or_else(PoisonError::into_inner).insert(cli.to_path_buf(), answer);
         answer
     }
@@ -1228,39 +1230,57 @@ fn random_text(n: usize) -> Result<String, String> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
-/// Whether `cli mcp --help` mentions `option` (waiting at most five seconds).
-fn help_mentions(cli: &Path, option: &str) -> bool {
-    let child = std::process::Command::new(cli)
-        .args(["mcp", "--help"])
+/// Starts `cli mcp` confined to `root`, as sessions start it, and asks it to initialize: `Ok`
+/// when it answers, else why not (what it wrote on stderr). Releases from before
+/// `--automation-read-root` reject the option and exit; their `--help` can't tell, since some
+/// apps that take it don't answer `--help`.
+fn answers_confined(cli: &Path, root: &Path) -> Result<(), String> {
+    use std::io::{BufRead, Write};
+    std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let mut child = std::process::Command::new(cli)
+        .arg("mcp")
+        .arg("--automation-read-root")
+        .arg(root)
+        .arg("--automation-write-root")
+        .arg(root)
+        .current_dir(root)
         .env_clear()
+        .env("HOME", root)
         .env("PATH", "/usr/local/bin:/usr/bin:/bin")
         .env("LANG", "C.UTF-8")
-        .stdin(std::process::Stdio::null())
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn();
-    let Ok(mut child) = child else { return false };
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
+        .spawn()
+        .map_err(|e| format!("it doesn't start ({e})"))?;
+    let init = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"artcraft-launcher","version":"1"}}}"#;
+    // Kept open until the answer: some tools stop at the end of their input.
+    let mut stdin = child.stdin.take();
+    if let Some(input) = stdin.as_mut() {
+        let _ = writeln!(input, "{init}");
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    if let Some(stdout) = child.stdout.take() {
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+                if line.contains("\"result\"") {
+                    let _ = tx.send(());
+                    return;
+                }
             }
-        }
+        });
     }
-    let mut text = String::new();
-    for pipe in
-        [child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read>), child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read>)]
-            .into_iter()
-            .flatten()
-    {
-        let _ = std::io::Read::read_to_string(&mut std::io::Read::take(pipe, 1 << 20), &mut text);
-    }
-    text.contains(option)
+    let answered = rx.recv_timeout(Duration::from_secs(10)).is_ok();
+    drop(stdin);
+    let _ = child.kill();
+    let _ = child.wait();
+    let why = child
+        .stderr
+        .take()
+        .and_then(|e| std::io::BufReader::new(e).lines().map_while(Result::ok).find(|l| !l.contains("files confined") && !l.trim().is_empty()))
+        .unwrap_or_else(|| "it didn't answer".into());
+    let _ = std::fs::remove_dir_all(root);
+    if answered { Ok(()) } else { Err(why.chars().take(300).collect()) }
 }
 
 /// Adds the files under `dir` to `out`, with paths starting with `prefix` (links aren't
@@ -1582,7 +1602,7 @@ mod tests {
             let mcp = Arc::new(mcp);
             // A stand-in tool that just stays up.
             let cli = dir.path().join("fake-cli");
-            std::fs::write(&cli, "#!/bin/sh\n[ \"$2\" = --help ] && exec echo 'mcp [--automation-read-root DIR]'\nexec sleep 30\n").unwrap();
+            std::fs::write(&cli, "#!/bin/sh\nread line\necho '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}'\nexec sleep 30\n").unwrap();
             std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
             mcp.set_max_sessions(2).unwrap();
             assert_eq!(Mcp::open(dir.path(), dir.path().join("work")).unwrap().settings().max_sessions, 2, "a chosen number stays");
@@ -1607,15 +1627,26 @@ mod tests {
         rt.block_on(async {
             let (dir, mcp) = mcp();
             let mcp = Arc::new(mcp);
-            // Like DeckCraft 0.7.0: no --automation-read-root in its help.
+            // Like DeckCraft 0.7.0: it rejects --automation-read-root and exits.
             let cli = dir.path().join("old-cli");
-            std::fs::write(&cli, "#!/bin/sh\necho 'usage: mcp [--connect PORT]'\n").unwrap();
+            std::fs::write(&cli, "#!/bin/sh\necho 'unknown mcp option `--automation-read-root`' >&2\nexit 1\n").unwrap();
             std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
             assert!(!mcp.confinable(&cli));
             let refused = mcp.start(CraftApp::by_id("deckcraft").unwrap(), "tok".into(), &cli).err().unwrap();
             assert!(refused.contains("can't be confined"), "{refused}");
             assert!(mcp.sessions.lock().unwrap().is_empty());
         });
+    }
+
+    /// `ARTCRAFT_PROBE_CLIS=a:b:c cargo test probe_real -- --ignored --nocapture`: tries the
+    /// confinement check on real command-line tools.
+    #[test]
+    #[ignore]
+    fn probe_real_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        for cli in std::env::var("ARTCRAFT_PROBE_CLIS").unwrap_or_default().split(':').filter(|c| !c.is_empty()) {
+            println!("{cli}: {:?}", answers_confined(Path::new(cli), &dir.path().join("root")));
+        }
     }
 
     #[test]

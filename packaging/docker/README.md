@@ -133,10 +133,12 @@ or expired token, a token that may not use that app, an app whose MCP server is 
 isn't installed, a session that couldn't start, or a refused OAuth token request.
 The first lines each app's tool writes about itself are in the log too (`<app> mcp: …`).
 
-An app whose release has a command-line tool that can't be confined to a work folder (it has no
-`--automation-read-root`, like DeckCraft 0.7.0) shows **MCP tool not usable**: the server doesn't
-run it, since it could reach every file the server can. Its next release that has the option works
-as soon as the app is updated.
+The server tries each app's command-line tool once, confined to a work folder
+(`--automation-read-root` and `--automation-write-root`). One that refuses the options shows **MCP
+tool not usable** and isn't run, since it could reach every file the server can; the log says what
+it answered. Its next release that takes the options works as soon as the app is updated. As of
+October 2026, PhotoCraft, VectorCraft, EffectCraft, WordCraft and SoundCraft take them; FilmCraft,
+LightCraft, PdfCraft, DesignCraft, DeckCraft, GridCraft, CadCraft and FigCraft don't yet.
 
 ## Settings
 
