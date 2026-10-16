@@ -189,7 +189,8 @@ artcraft-launcher
 `Dockerfile` and [`packaging/docker/`](packaging/docker/) run the launcher on your own domain
 with `docker compose`: visitors open the installed Craft Apps, which run in their browser as
 WebAssembly, and the administrator (signed in at `/admin/` with the password set in `.env`)
-installs, updates and removes them. See [`packaging/docker/README.md`](packaging/docker/README.md).
+installs, updates and removes them. On Coolify, the root `docker-compose.yml` leaves HTTPS to its
+Traefik. See [`packaging/docker/README.md`](packaging/docker/README.md).
 
 ## Build from source
 

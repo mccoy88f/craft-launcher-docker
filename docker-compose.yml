@@ -1,0 +1,33 @@
+# ArtCraft Launcher for Coolify (or any platform whose own reverse proxy handles HTTPS).
+#
+# Coolify: New resource → your repository → Build Pack "Docker Compose" (this file, the default
+# /docker-compose.yml). Set the domain on the "launcher" service; Coolify's Traefik gets the
+# certificate and routes it to port 8080. Set ARTCRAFT_ADMIN_PASSWORD in Environment Variables.
+#
+# For a server without such a proxy, use packaging/docker/docker-compose.yml (with Caddy).
+services:
+  launcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Coolify reads this to route the domain you set to port 8080 of this service.
+      - SERVICE_FQDN_LAUNCHER_8080
+      - ARTCRAFT_ADMIN_USER=${ARTCRAFT_ADMIN_USER:-admin}
+      - ARTCRAFT_ADMIN_PASSWORD=${ARTCRAFT_ADMIN_PASSWORD:?}
+      - ARTCRAFT_CHECK_MINUTES=${ARTCRAFT_CHECK_MINUTES:-30}
+      - ARTCRAFT_LAUNCHER_GITHUB_TOKEN=${ARTCRAFT_LAUNCHER_GITHUB_TOKEN:-}
+    volumes:
+      - launcher-data:/data
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "artcraft-launcher-server", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  launcher-data:

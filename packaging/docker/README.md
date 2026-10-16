@@ -14,6 +14,8 @@ device: no remote desktop, no VNC, nothing streamed.
 ## Quick start
 
 You need a machine with Docker, ports 80 and 443 open, and a domain whose DNS points at it.
+On Coolify (or another platform with its own HTTPS proxy), see [Coolify](#coolify-traefik)
+instead.
 
 ```sh
 cd packaging/docker
@@ -89,6 +91,26 @@ else.
   site can't send it, so another page can't make a signed-in administrator's browser install or
   remove an app.
 - The container runs as an unprivileged user (uid 10001) and only writes to `/data`.
+
+## Coolify (Traefik)
+
+Coolify's Traefik already provides HTTPS, so neither the launcher nor Caddy has to get a
+certificate. Use the `docker-compose.yml` at the repository root, which has no Caddy and
+publishes no ports:
+
+1. **New resource** → your repository (and branch) → Build Pack **Docker Compose**, compose file
+   `/docker-compose.yml`.
+2. On the `launcher` service, set the domain (for example `https://launcher.example.com`).
+   Coolify routes it to the container's port 8080 and gets the certificate.
+3. Under **Environment Variables**, set `ARTCRAFT_ADMIN_PASSWORD` (at least 8 characters), and
+   optionally `ARTCRAFT_ADMIN_USER`, `ARTCRAFT_CHECK_MINUTES` and `ARTCRAFT_LAUNCHER_GITHUB_TOKEN`.
+4. Deploy. The `launcher-data` volume keeps the installed apps across deploys.
+
+The Dockerfile build pack works too: point it at `/Dockerfile`, set the port to `8080`, add a
+persistent storage mounted at `/data`, and set the same variables.
+
+Traefik passes the `Authorization` header through and leaves the apps' files as they are, so
+nothing else needs configuring.
 
 ## Without Caddy
 
