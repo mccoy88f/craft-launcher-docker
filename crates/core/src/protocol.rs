@@ -4,6 +4,8 @@
 //! The UI sends [`Command`]s and drains [`Event`]s once per frame, so backends do their work on
 //! threads (desktop) or futures (web) and never block a frame.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::platform::{PackageKind, Platform};
@@ -21,6 +23,10 @@ pub enum Command {
     Detect,
     /// Install or update an app to its latest release.
     Install {
+        app: String,
+    },
+    /// `Install`, writing over what [`Event::Occupied`] reported.
+    Replace {
         app: String,
     },
     Uninstall {
@@ -71,9 +77,25 @@ pub enum Command {
     },
 }
 
+/// Parent folders for new installs. Existing installations keep their recorded location.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstallLocations {
+    pub root: Option<String>,
+    pub per_app: BTreeMap<String, String>,
+}
+
+impl InstallLocations {
+    pub fn folder(&self, app: &str) -> Option<&str> {
+        self.per_app.get(app).map(String::as_str).or(self.root.as_deref())
+    }
+}
+
 /// Settings the backend needs.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BackendOptions {
+    pub install_locations: InstallLocations,
     /// Package formats to install, best first (empty: the platform default).
     pub kinds: Vec<PackageKind>,
     /// Offer pre-releases (`0.6.0-rc.1`) as updates.
@@ -206,6 +228,12 @@ pub enum Event {
         app: String,
         ready: bool,
     },
+    /// A new install stopped before downloading because `path` already exists and the launcher
+    /// didn't put it there. `Command::Replace` installs over it.
+    Occupied {
+        app: String,
+        path: String,
+    },
     /// A job ended: `Ok` carries a short success message, `Err` what went wrong.
     JobFinished {
         app: String,
@@ -264,5 +292,29 @@ pub trait Backend {
     /// there's nobody to sign in as (the desktop, a static site).
     fn signed_in(&self) -> Option<bool> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn install_folders_inherit_the_default_unless_the_app_has_an_override() {
+        let mut locations = InstallLocations::default();
+        assert_eq!(locations.folder("photocraft"), None);
+        locations.root = Some("/Volumes/Craft".into());
+        locations.per_app.insert("photocraft".into(), "/Volumes/Photo".into());
+        assert_eq!(locations.folder("photocraft"), Some("/Volumes/Photo"));
+        assert_eq!(locations.folder("filmcraft"), Some("/Volumes/Craft"));
+        locations.per_app.remove("photocraft");
+        assert_eq!(locations.folder("photocraft"), Some("/Volumes/Craft"));
+    }
+
+    #[test]
+    fn old_backend_options_keep_system_install_locations() {
+        let options: BackendOptions = serde_json::from_str(r#"{"kinds":[],"prereleases":true}"#).unwrap();
+        assert!(options.prereleases);
+        assert_eq!(options.install_locations, InstallLocations::default());
     }
 }

@@ -58,6 +58,9 @@ pub trait Host {
     fn reduce_motion(&self) -> bool {
         false
     }
+    fn pick_folder(&mut self, _initial: Option<&str>) -> Option<String> {
+        None
+    }
     /// Quit the launcher for real (not just hide to the tray).
     fn quit(&mut self) {}
 }
@@ -72,6 +75,14 @@ pub(crate) struct Toast {
 pub(crate) enum Dialog {
     Notes(String),
     ConfirmUninstall(String),
+    Install {
+        app: String,
+        folder: String,
+    },
+    Replace {
+        app: String,
+        path: String,
+    },
     Settings,
     LauncherUpdate(artcraft_launcher_core::Release),
     /// Making an MCP access token.
@@ -87,6 +98,8 @@ impl Dialog {
         match self {
             Dialog::Notes(id) => ("notes", id),
             Dialog::ConfirmUninstall(id) => ("uninstall", id),
+            Dialog::Install { app, .. } => ("install", app),
+            Dialog::Replace { app, .. } => ("replace", app),
             Dialog::Settings => ("settings", ""),
             Dialog::LauncherUpdate(r) => ("launcher-update", &r.tag),
             Dialog::NewToken => ("new-token", ""),
@@ -281,14 +294,41 @@ impl LauncherUi {
         self.entries.iter_mut().find(|e| e.app.id == id)
     }
 
-    /// Non-drawing work: runs every frame and also while the window is hidden in the tray.
-    pub fn logic(&mut self, ctx: &egui::Context, host: &mut dyn Host) {
-        set_current(crate::i18n::Lang::from_pref(&self.settings.language));
-        let options = BackendOptions { kinds: self.settings.preferred_kinds.clone(), prereleases: self.settings.prereleases };
+    pub(crate) fn configure(&mut self) {
+        let options = BackendOptions {
+            kinds: self.settings.preferred_kinds.clone(),
+            prereleases: self.settings.prereleases,
+            install_locations: self.settings.install_locations.clone(),
+        };
         if self.sent_options.as_ref() != Some(&options) {
             self.backend.send(Command::Configure(options.clone()));
             self.sent_options = Some(options);
         }
+    }
+
+    pub(crate) fn custom_install_folders(&self) -> bool {
+        // A launcher server's page installs browser builds on the server: no folder to choose.
+        self.caps.manage_apps
+            && !self.caps.web_apps
+            && self.platform.is_some_and(|p| {
+                matches!(p.os, artcraft_launcher_core::Os::Windows | artcraft_launcher_core::Os::MacOs | artcraft_launcher_core::Os::Linux)
+            })
+            && !crate::settings::is_flatpak_sandbox()
+    }
+
+    pub(crate) fn install_app(&mut self, id: &str) {
+        if !self.custom_install_folders() || self.entry(id).is_some_and(|e| e.installed.is_some()) {
+            self.send(Command::Install { app: id.to_string() });
+            return;
+        }
+        self.dialog =
+            Some(Dialog::Install { app: id.to_string(), folder: self.settings.install_locations.per_app.get(id).cloned().unwrap_or_default() });
+    }
+
+    /// Non-drawing work: runs every frame and also while the window is hidden in the tray.
+    pub fn logic(&mut self, ctx: &egui::Context, host: &mut dyn Host) {
+        set_current(crate::i18n::Lang::from_pref(&self.settings.language));
+        self.configure();
         if !self.started {
             self.started = true;
             self.backend.send(Command::CheckForUpdates { force: false });
@@ -386,6 +426,10 @@ impl LauncherUi {
                 }
                 false
             }
+            Event::Occupied { app, path } => {
+                self.dialog = Some(Dialog::Replace { app, path });
+                false
+            }
             Event::JobFinished { app, result } => {
                 let launcher = app == artcraft_launcher_core::catalog::LAUNCHER_ID;
                 // What the job was doing when it ended says what a cancellation called off.
@@ -409,6 +453,8 @@ impl LauncherUi {
                         self.toast(ctx, tl!("Install cancelled. The download is kept for the next try."), false);
                     }
                     Err(e) if e == INSTALL_CANCELLED => self.toast(ctx, tl!("Install cancelled"), false),
+                    // The Replace dialog says it all.
+                    Err(_) if matches!(&self.dialog, Some(Dialog::Replace { app: a, .. }) if *a == app) => {}
                     Err(e) => self.toast(ctx, e, true),
                 }
                 true

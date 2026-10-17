@@ -20,6 +20,7 @@ use crate::http::{self, Http, Stop};
 use crate::install::{self, Job};
 use crate::manifest::Manifest;
 use crate::paths::Paths;
+use crate::process;
 use crate::source::{GitHubSource, ReleaseSource};
 
 /// The longest the launcher's own update waits for other installs to end before it gives up
@@ -310,7 +311,8 @@ impl NativeBackend {
         });
     }
 
-    fn start_job(&self, app_id: &str, uninstall: bool) {
+    fn start_job(&self, app_id: &str, work: Work) {
+        let uninstall = work == Work::Uninstall;
         let Some(app) = CraftApp::by_id(app_id) else { return };
         log::info!("{}: starting {} job", app.name, if uninstall { "uninstall" } else { "install/update" });
         let stop = Arc::new(Stop::default());
@@ -352,7 +354,18 @@ impl NativeBackend {
                     None => Err(format!("{} isn't installed", app.name)),
                 }
             } else {
-                let r = run_install(app, &shared, &paths, http.as_ref(), platform, &options, existing.as_ref(), record.as_ref(), &stop);
+                let r = run_install(
+                    app,
+                    &shared,
+                    &paths,
+                    http.as_ref(),
+                    platform,
+                    &options,
+                    existing.as_ref(),
+                    record.as_ref(),
+                    &stop,
+                    work == Work::Replace,
+                );
                 // Stopped by the connection rather than by the user: say so, and how to go on.
                 match r {
                     Err(e) if e == PAUSED && stop.check().is_ok() => {
@@ -443,6 +456,13 @@ impl NativeBackend {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Work {
+    Install,
+    Replace,
+    Uninstall,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_install(
     app: &CraftApp,
@@ -454,6 +474,7 @@ fn run_install(
     existing: Option<&Installed>,
     record: Option<&crate::manifest::Record>,
     stop: &Stop,
+    replace: bool,
 ) -> Result<String, String> {
     if let Some(msg) = existing.and_then(|e| install::managed_elsewhere(app, e, false)) {
         return Err(msg);
@@ -467,8 +488,21 @@ fn run_install(
         .get(app.id)
         .cloned()
         .ok_or("the latest release hasn't been found yet. Check for updates first.")?;
-    let (asset, kind) = planned_asset(app, &release, platform, options, existing, record)
-        .ok_or_else(|| format!("{} {} has no download for {}", app.name, release.version_label(), platform.label()))?;
+    let (asset, kind) = planned_asset(app, &release, platform, options, existing, record).ok_or_else(|| {
+        if platform.os == artcraft_launcher_core::Os::Linux
+            && options.install_locations.folder(app.id).is_some()
+            && existing.is_none()
+            && record.is_none()
+        {
+            "this release has no AppImage for a custom install folder".to_string()
+        } else {
+            format!("{} {} has no download for {}", app.name, release.version_label(), platform.label())
+        }
+    })?;
+    if !replace && let Some(path) = install::occupied(app, &asset, kind, existing, record, &options.install_locations, paths)? {
+        shared.emit(Event::Occupied { app: app.id.to_string(), path: path.display().to_string() });
+        return Err(format!("{} already exists", path.display()));
+    }
     let mut last_emit = Instant::now() - Duration::from_secs(1);
     let mut phase = |p: JobPhase| {
         // Downloads report thousands of times; the UI needs ~20 a second.
@@ -478,8 +512,16 @@ fn run_install(
         last_emit = Instant::now();
         shared.emit(Event::Progress { app: app.id.to_string(), phase: p });
     };
-    let mut job = Job { http, paths, stop, phase: &mut phase };
-    let new_record = install::install(app, &release, &asset, kind, existing, record, &mut job)?;
+    let mut job = Job { http, paths, stop, phase: &mut phase, install_locations: &options.install_locations, replace };
+    let mut commit_record = |record: &crate::manifest::Record| {
+        let mut manifest = shared.manifest.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut updated = manifest.clone();
+        updated.apps.insert(app.id.to_string(), record.clone());
+        updated.save(&paths.manifest())?;
+        *manifest = updated;
+        Ok(())
+    };
+    let new_record = install::install_at(app, &release, &asset, kind, existing, record, &mut job, Some(&mut commit_record))?;
     {
         let mut m = shared.manifest.lock().unwrap_or_else(PoisonError::into_inner);
         let changed = match new_record {
@@ -577,7 +619,18 @@ fn planned_asset(
     record: Option<&crate::manifest::Record>,
 ) -> Option<(Asset, PackageKind)> {
     let stems: Vec<&str> = app.stems().collect();
-    let kinds = install::choose_kinds(existing, record, &options.kinds);
+    let custom_linux = platform.os == artcraft_launcher_core::Os::Linux
+        && !process::in_sandbox()
+        && existing.is_none()
+        && record.is_none()
+        && options.install_locations.folder(app.id).is_some();
+    let kinds = if existing.is_none() && record.is_some_and(|r| r.kind == PackageKind::PortableZip) {
+        vec![PackageKind::PortableZip]
+    } else if custom_linux {
+        vec![artcraft_launcher_core::PackageKind::AppImage]
+    } else {
+        install::choose_kinds(existing, record, &options.kinds)
+    };
     pick_asset(release, &stems, platform, &kinds).map(|(a, k)| (a.clone(), k))
 }
 
@@ -896,8 +949,9 @@ impl Backend for NativeBackend {
         match command {
             Command::CheckForUpdates { force } => self.check(force),
             Command::Detect => self.detect_all(),
-            Command::Install { app } => self.start_job(&app, false),
-            Command::Uninstall { app } => self.start_job(&app, true),
+            Command::Install { app } => self.start_job(&app, Work::Install),
+            Command::Replace { app } => self.start_job(&app, Work::Replace),
+            Command::Uninstall { app } => self.start_job(&app, Work::Uninstall),
             Command::Pause { app } => {
                 if let Some(stop) = self.shared.jobs.lock().unwrap_or_else(PoisonError::into_inner).get(&app) {
                     stop.pause();
@@ -1217,6 +1271,66 @@ mod tests {
             .map(|name| Asset { url: format!("https://example.invalid/{name}"), name, size: 3, sha256: None })
             .collect();
         Release { assets, ..Release::default() }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_preference_selects_portable_and_existing_installs_keep_their_format() {
+        let app = CraftApp::by_id(APP).unwrap();
+        let platform = Platform { os: Os::Windows, arch: Arch::X64 };
+        let release = release("0.5.0");
+        let portable_options = BackendOptions { kinds: vec![PackageKind::PortableZip], ..Default::default() };
+        assert_eq!(planned_asset(app, &release, platform, &portable_options, None, None).unwrap().1, PackageKind::PortableZip);
+        let msi = Installed {
+            version: None,
+            source: artcraft_launcher_core::InstallSource::Msi,
+            location: r"C:\Apps\PhotoCraft\photocraft.exe".into(),
+            package: None,
+        };
+        assert_eq!(planned_asset(app, &release, platform, &portable_options, Some(&msi), None).unwrap().1, PackageKind::Msi);
+        let launcher = Installed {
+            version: None,
+            source: artcraft_launcher_core::InstallSource::Launcher,
+            location: r"D:\Craft Apps\PhotoCraft\photocraft.exe".into(),
+            package: None,
+        };
+        let record = crate::manifest::Record {
+            version: "0.4.0".into(),
+            kind: PackageKind::PortableZip,
+            path: launcher.location.clone().into(),
+            installed_at: 1,
+            files: vec![],
+            needs_root: false,
+        };
+        let msi_options = BackendOptions { kinds: vec![PackageKind::Msi], ..Default::default() };
+        assert_eq!(planned_asset(app, &release, platform, &msi_options, Some(&launcher), Some(&record)).unwrap().1, PackageKind::PortableZip);
+        assert_eq!(planned_asset(app, &release, platform, &msi_options, None, Some(&record)).unwrap().1, PackageKind::PortableZip);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_custom_linux_folder_requires_appimage_without_package_fallback() {
+        if process::in_sandbox() {
+            return;
+        }
+        let app = CraftApp::by_id(APP).unwrap();
+        let platform = Platform { os: Os::Linux, arch: Arch::X64 };
+        let options = BackendOptions {
+            kinds: vec![PackageKind::Deb],
+            install_locations: artcraft_launcher_core::protocol::InstallLocations { root: Some("/custom/apps".into()), ..Default::default() },
+            ..Default::default()
+        };
+        let mut release = release("0.5.0");
+        assert_eq!(planned_asset(app, &release, platform, &options, None, None).unwrap().1, PackageKind::AppImage);
+        release.assets.retain(|a| !a.name.ends_with(".AppImage"));
+        assert!(planned_asset(app, &release, platform, &options, None, None).is_none());
+        let existing =
+            Installed { version: None, source: artcraft_launcher_core::InstallSource::Deb, location: "/usr/bin/photocraft".into(), package: None };
+        let system = BackendOptions { kinds: options.kinds.clone(), ..Default::default() };
+        assert_eq!(
+            planned_asset(app, &release, platform, &options, Some(&existing), None),
+            planned_asset(app, &release, platform, &system, Some(&existing), None)
+        );
     }
 
     /// A backend that knows `release("0.5.0")` and keeps its files under `root`.

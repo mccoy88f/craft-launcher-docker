@@ -359,7 +359,8 @@ impl Backend for ServerBackend {
             Command::SignOut => sign_out(),
             Command::McpDownload { app, client, path } => self.download(app, client, path),
             Command::McpUpload { app, client } => self.upload(app, client),
-            Command::Reveal { .. } | Command::UpdateLauncher => {}
+            // Desktop only: there are no folders to show or write over on the server.
+            Command::Reveal { .. } | Command::UpdateLauncher | Command::Replace { .. } => {}
         }
     }
 

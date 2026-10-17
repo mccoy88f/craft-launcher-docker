@@ -419,3 +419,21 @@ filter	Installed	Installate
 	Building needs the build service (cli-builder) in the Docker Compose file: see the guide.	Per compilare serve il servizio di compilazione (cli-builder) nel file Docker Compose: vedi la guida.
 	Build again	Compila di nuovo
 	Build the MCP tool from source	Installa lo strumento MCP dai sorgenti
+	Install folder	Cartella di installazione
+	Default install folder	Cartella di installazione predefinita
+	System default	Predefinita di sistema
+	Browse…	Sfoglia…
+	Use default	Usa predefinita
+	New installs use this folder. Updates stay in their current location.	Le nuove installazioni usano questa cartella. Gli aggiornamenti restano dove si trovano.
+	Custom folders use AppImage on Linux.	Su Linux le cartelle personalizzate usano AppImage.
+	The system manages install locations here.	Qui le posizioni di installazione sono gestite dal sistema.
+@msg	couldn't use install folder {path}: {reason}	impossibile usare la cartella di installazione {path}: {reason}
+@msg	this release has no AppImage for a custom install folder	questo rilascio non ha un AppImage per una cartella di installazione personalizzata
+@msg	custom install folders aren't supported on this system	le cartelle di installazione personalizzate non sono supportate su questo sistema
+@msg	{path} already exists and wasn't installed by ArtCraft Launcher	{path} esiste già e non è stato installato da ArtCraft Launcher
+@msg	couldn't move {path} to Trash ({reason}). Remove it in Finder instead.	impossibile spostare {path} nel Cestino ({reason}). Rimuovilo dal Finder.
+	Apps are placed inside this folder.	Le app vengono messe in questa cartella.
+	Replace what's there?	Sostituire ciò che c'è?
+	{path} already exists. Installing {name} will overwrite it.	{path} esiste già. Installando {name} verrà sovrascritto.
+	Replace	Sostituisci
+	Installing on Windows	Installazione su Windows

@@ -432,6 +432,14 @@ impl Host for DesktopHost {
         login::set_enabled(on)
     }
 
+    fn pick_folder(&mut self, initial: Option<&str>) -> Option<String> {
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(folder) = initial.filter(|p| std::path::Path::new(p).is_dir()) {
+            dialog = dialog.set_directory(folder);
+        }
+        dialog.pick_folder().and_then(|p| p.to_str().map(str::to_string))
+    }
+
     fn reduce_motion(&self) -> bool {
         motion::reduced()
     }

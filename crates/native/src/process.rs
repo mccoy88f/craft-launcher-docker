@@ -51,13 +51,15 @@ pub fn capture(program: &str, args: &[&str], timeout: Duration) -> Option<String
 /// Runs a helper and returns its standard output when it succeeds within `timeout`; otherwise
 /// the reason, in the helper's own words (its standard error) where it gave one.
 pub fn run(program: &str, args: &[&str], timeout: Duration) -> Result<String, String> {
-    let mut child = command(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("couldn't start {program} ({e})"))?;
+    let mut cmd = command(program);
+    cmd.args(args);
+    run_command(cmd, program, timeout)
+}
+
+/// Runs a configured helper with bounded output and a timeout.
+pub fn run_command(mut cmd: Command, program: &str, timeout: Duration) -> Result<String, String> {
+    let mut child =
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("couldn't start {program} ({e})"))?;
     // Read both pipes while it runs, so a chatty helper can't block on a full one.
     let (stdout, stderr) = (read_all(child.stdout.take()), read_all(child.stderr.take()));
     let start = Instant::now();
