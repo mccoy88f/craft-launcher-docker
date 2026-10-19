@@ -113,7 +113,7 @@ fn italian_ui_translates_labels_dates_and_messages() {
     h.run_steps(8);
     snapshot(&mut h, "grid-it-dark");
     // Product names stay in English.
-    h.get_by_label("Launcher");
+    assert!(h.query_by_label("Launcher").is_none());
     h.get_by_label("Craft App Suite");
     h.get_by_label("Fotoritocco");
     h.get_by_label("Aggiorna a 0.5.0");

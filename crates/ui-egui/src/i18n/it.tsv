@@ -437,3 +437,17 @@ filter	Installed	Installate
 	{path} already exists. Installing {name} will overwrite it.	{path} esiste già. Installando {name} verrà sovrascritto.
 	Replace	Sostituisci
 	Installing on Windows	Installazione su Windows
+	Arch package (.pkg.tar.zst)	Pacchetto Arch (.pkg.tar.zst)
+@msg	{name} was installed from the {repo} repository or the AUR ({pkg}). Update it with {cmd} or sudo pacman -Syu	{name} è stata installata dal repository {repo} o dall'AUR ({pkg}). Aggiornala con {cmd} o sudo pacman -Syu
+@msg	{name} was installed from the {repo} repository or the AUR ({pkg}). Update it with your AUR helper (for example: yay -S {pkg}) or sudo pacman -Syu	{name} è stata installata dal repository {repo} o dall'AUR ({pkg}). Aggiornala con il tuo helper AUR (per esempio: yay -S {pkg}) o sudo pacman -Syu
+@msg	{name} was installed from the AUR ({pkg}). Update it with {cmd}	{name} è stata installata dall'AUR ({pkg}). Aggiornala con {cmd}
+@msg	{name} was installed from the AUR ({pkg}). Update it with your AUR helper (for example: yay -S {pkg})	{name} è stata installata dall'AUR ({pkg}). Aggiornala con il tuo helper AUR (per esempio: yay -S {pkg})
+	Recently updated	Aggiornate di recente
+	Name (A–Z)	Nome (A–Z)
+	Name (Z–A)	Nome (Z–A)
+	Frequently used	Usate più spesso
+	Next app	App successiva
+	Previous app	App precedente
+	Show {n} more changes	Mostra altre {n} modifiche
+	Last updated: {date}	Ultimo aggiornamento: {date}
+column	Version	Versione

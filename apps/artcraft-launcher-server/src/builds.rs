@@ -24,8 +24,9 @@ use artcraft_launcher_core::hosted::SourceBuild;
 use serde::Deserialize;
 
 /// Apps whose code on `main` confines the MCP tool (`--automation-read-root` and
-/// `--automation-write-root`) while their latest release doesn't. Add an app here when that's
-/// so; the release's tool is used again as soon as one can be confined.
+/// `--automation-write-root`) while a release didn't. Add an app here when that's so; the
+/// release's tool is used again as soon as one can be confined. DeckCraft 0.8.0 and DesignCraft
+/// 0.9.0 release a tool that can: they stay for installations not updated yet.
 pub const FROM_SOURCE: [&str; 2] = ["deckcraft", "designcraft"];
 
 /// The build service counts as running when it wrote its heartbeat this recently (seconds).

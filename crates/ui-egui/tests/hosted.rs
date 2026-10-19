@@ -179,6 +179,10 @@ fn visitors_see_everything_and_their_changes_ask_to_sign_in() {
     h.run_steps(2);
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::Launch { app } if app == "photocraft")), "{:?}", sent.borrow());
     // Install goes to the backend, which takes a visitor to the sign-in page.
+    h.get_by_label("Install").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Install").hover();
+    h.run_steps(2);
     h.get_by_label("Install").click();
     h.run_steps(2);
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::Install { app } if app == "vectorcraft")));
@@ -197,6 +201,10 @@ fn the_administrator_installs_and_updates_browser_builds() {
     // VectorCraft has a browser build; FilmCraft's release has only a desktop one.
     assert_eq!(h.query_all_by_label("Install").count(), 1);
     assert!(h.query_all_by_label("Not available").count() >= 1);
+    h.get_by_label("Install").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Install").hover();
+    h.run_steps(2);
     h.get_by_label("Install").click();
     h.run_steps(2);
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::Install { app } if app == "vectorcraft")), "{:?}", sent.borrow());
@@ -213,6 +221,10 @@ fn the_administrator_sees_and_changes_the_mcp_server() {
     h.run_steps(4);
     h.get_by_label("Turn on the MCP server");
     h.get_by_label_contains("Claude Desktop");
+    h.get_by_label("Empty").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Empty").hover();
+    h.run_steps(2);
     h.get_by_label("Empty").click();
     h.run_steps(2);
     assert!(
@@ -220,6 +232,10 @@ fn the_administrator_sees_and_changes_the_mcp_server() {
         "{:?}",
         sent.borrow()
     );
+    h.get_by_label("New token").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("New token").hover();
+    h.run_steps(2);
     h.get_by_label("New token").click();
     h.run_steps(4);
     h.get_by_label("New MCP token");
@@ -246,6 +262,10 @@ fn the_administrator_downloads_deletes_and_adds_a_clients_files() {
     let (mut h, sent) = harness_with(true, events);
     h.get_by_label("PhotoCraft details").click();
     h.run_steps(10);
+    h.get_by_label("MCP server ↓").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("MCP server ↓").hover();
+    h.run_steps(2);
     h.get_by_label("MCP server ↓").click();
     h.run_steps(4);
     h.get_by_label("scozziando.png");
@@ -265,6 +285,10 @@ fn the_administrator_downloads_deletes_and_adds_a_clients_files() {
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::DeleteFile { path, .. }) if path == "scozziando.png")));
     // The earlier files can't be added to; a client's folder can.
     assert_eq!(h.query_all_by_label("Add files…").count(), 1);
+    h.get_by_label("Add files…").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Add files…").hover();
+    h.run_steps(2);
     h.get_by_label("Add files…").click();
     h.run_steps(2);
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::McpUpload { client, .. } if client == "t1")));
@@ -279,10 +303,18 @@ fn revoking_a_token_asks_first_and_says_its_files_go() {
     h.get_by_label("Settings").click();
     h.run_steps(4);
     h.get_by_label("Let MCP clients download files from web addresses");
+    h.get_by_label("Revoke").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Revoke").hover();
+    h.run_steps(2);
     h.get_by_label("Revoke").click();
     h.run_steps(2);
     h.get_by_label_contains("Its files on the server are deleted too");
     assert!(!sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::RevokeToken { .. }))));
+    h.get_by_label("Revoke").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Revoke").hover();
+    h.run_steps(2);
     h.get_by_label("Revoke").click();
     h.run_steps(2);
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::RevokeToken { id }) if id == "t1")));
@@ -318,11 +350,19 @@ fn an_app_whose_code_is_compatible_can_have_its_tool_built_from_source() {
     assert_eq!(h.query_all_by_label("MCP").count(), 0);
     h.get_by_label("PhotoCraft details").click();
     h.run_steps(10);
+    h.get_by_label("MCP server ↓").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("MCP server ↓").hover();
+    h.run_steps(2);
     h.get_by_label("MCP server ↓").click();
     h.run_steps(4);
     h.get_by_label("Not yet compatible with MCP");
     h.get_by_label_contains("the MCP tool can be built from it");
     h.get_by_label_contains("MCP tool not usable");
+    h.get_by_label("Build the MCP tool from source").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Build the MCP tool from source").hover();
+    h.run_steps(2);
     h.get_by_label("Build the MCP tool from source").click();
     h.run_steps(2);
     assert!(sent.borrow().iter().any(|c| matches!(c, Command::Mcp(McpChange::BuildFromSource { app }) if app == "photocraft")));
@@ -338,6 +378,10 @@ fn an_app_whose_code_is_compatible_can_have_its_tool_built_from_source() {
     let (mut h, _) = harness_with(true, evs);
     h.get_by_label("PhotoCraft details").click();
     h.run_steps(10);
+    h.get_by_label("MCP server ↓").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("MCP server ↓").hover();
+    h.run_steps(2);
     h.get_by_label("MCP server ↓").click();
     h.run_steps(4);
     h.get_by_label_contains("Building the MCP tool from source");
@@ -350,6 +394,10 @@ fn an_app_whose_code_is_compatible_can_have_its_tool_built_from_source() {
     assert_eq!(h.query_all_by_label("MCP").count(), 1, "usable again: the badge is back");
     h.get_by_label("PhotoCraft details").click();
     h.run_steps(10);
+    h.get_by_label("MCP server ↓").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("MCP server ↓").hover();
+    h.run_steps(2);
     h.get_by_label("MCP server ↓").click();
     h.run_steps(4);
     h.get_by_label("MCP tool built from source (1dc6972)");
@@ -362,6 +410,10 @@ fn an_app_whose_code_is_compatible_can_have_its_tool_built_from_source() {
     let (mut h, _) = harness_with(true, evs);
     h.get_by_label("PhotoCraft details").click();
     h.run_steps(10);
+    h.get_by_label("MCP server ↓").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("MCP server ↓").hover();
+    h.run_steps(2);
     h.get_by_label("MCP server ↓").click();
     h.run_steps(4);
     h.get_by_label_contains("Building needs the build service");
@@ -375,6 +427,10 @@ fn an_app_that_isnt_compatible_says_so_in_its_mcp_settings() {
     let (mut h, _) = harness_with(true, events);
     h.get_by_label("EffectCraft details").click();
     h.run_steps(10);
+    h.get_by_label("MCP server ↓").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("MCP server ↓").hover();
+    h.run_steps(2);
     h.get_by_label("MCP server ↓").click();
     h.run_steps(4);
     h.get_by_label("Not yet compatible with MCP");

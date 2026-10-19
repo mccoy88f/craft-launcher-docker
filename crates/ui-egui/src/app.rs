@@ -61,6 +61,10 @@ pub trait Host {
     fn pick_folder(&mut self, _initial: Option<&str>) -> Option<String> {
         None
     }
+    /// The URL to open when Discord is clicked. Defaults to the web link.
+    fn discord_url(&self) -> &'static str {
+        artcraft_launcher_core::catalog::DISCORD_URL
+    }
     /// Quit the launcher for real (not just hide to the tray).
     fn quit(&mut self) {}
 }
@@ -129,6 +133,8 @@ pub struct LauncherUi {
     pub(crate) search: String,
     pub(crate) toasts: Vec<Toast>,
     pub(crate) dialog: Option<Dialog>,
+    /// Release-note text scale for this session, independent of the main UI zoom.
+    pub(crate) notes_zoom: f32,
     /// The app whose details drawer is open (or closing: see `detail_shown`).
     pub(crate) detail: Option<String>,
     /// The app the drawer is drawn for: it outlives `detail` while the drawer slides out.
@@ -169,6 +175,8 @@ pub struct LauncherUi {
     pub(crate) mcp_open: bool,
     /// What waits for a second click on the MCP page: `revoke:<token>` or `file:<app>/<client>/<path>`.
     pub(crate) mcp_confirm: Option<String>,
+    /// The URL or deep link to open when Discord is clicked.
+    pub(crate) discord_url: &'static str,
 }
 
 /// The language to draw in: the preference, or English where it needs a CJK font the system
@@ -193,6 +201,12 @@ impl LauncherUi {
         egui_extras::install_image_loaders(ctx);
         let caps = backend.capabilities();
         let platform = backend.platform();
+        // The page no longer offers Installed, Updates or Not installed, so a saved one would
+        // hide apps with nothing on screen to undo it.
+        let mut settings = settings;
+        if !matches!(settings.filter, Filter::All | Filter::Hidden) {
+            settings.filter = Filter::All;
+        }
         Self {
             backend,
             settings,
@@ -210,6 +224,7 @@ impl LauncherUi {
             search: String::new(),
             toasts: Vec::new(),
             dialog: None,
+            notes_zoom: 1.0,
             detail: None,
             detail_shown: None,
             detail_shot: 0,
@@ -230,6 +245,7 @@ impl LauncherUi {
             token_form: crate::mcp::TokenForm::default(),
             mcp_open: false,
             mcp_confirm: None,
+            discord_url: artcraft_launcher_core::catalog::DISCORD_URL,
         }
     }
 
@@ -460,6 +476,8 @@ impl LauncherUi {
                 true
             }
             Event::LauncherUpdate(r) => {
+                // Whether the launcher can replace itself is only known once an update is found.
+                self.caps = self.backend.capabilities();
                 let fresh = self.launcher_update.as_ref().is_none_or(|cur| cur.version != r.version);
                 self.launcher_update = Some(r.clone());
                 // Ask once per new version, unless automatic updates will install it anyway.
@@ -557,9 +575,35 @@ impl LauncherUi {
         }
     }
 
+    fn zoom_input(&mut self, ctx: &egui::Context) {
+        use egui::gui_zoom::kb_shortcuts;
+        let notes_open = matches!(self.dialog, Some(Dialog::Notes(_)));
+        let (delta, zoom_in, zoom_out, reset) = ctx.input_mut(|i| {
+            let delta = i.zoom_delta();
+            let reset = notes_open && i.consume_shortcut(&kb_shortcuts::ZOOM_RESET);
+            let zoom_in = notes_open && (i.consume_shortcut(&kb_shortcuts::ZOOM_IN) || i.consume_shortcut(&kb_shortcuts::ZOOM_IN_SECONDARY));
+            let zoom_out = notes_open && i.consume_shortcut(&kb_shortcuts::ZOOM_OUT);
+            (delta, zoom_in, zoom_out, reset)
+        });
+        let delta = if delta.is_finite() && delta > 0.0 { delta } else { 1.0 };
+        if notes_open {
+            let step = match (zoom_in, zoom_out) {
+                (true, false) => 0.1,
+                (false, true) => -0.1,
+                _ => 0.0,
+            };
+            self.notes_zoom = if reset { 1.0 } else { ((self.notes_zoom + step) * delta).clamp(0.5, 3.0) };
+        } else if delta != 1.0 {
+            ctx.set_zoom_factor((ctx.zoom_factor() * delta).clamp(0.2, 5.0));
+        }
+    }
+
     /// Draws the launcher.
     pub fn ui(&mut self, ui: &mut egui::Ui, host: &mut dyn Host) {
         let ctx = ui.ctx().clone();
+        if host.title_bar() == TitleBar::MacOs && ctx.input_mut(|i| i.consume_key(egui::Modifiers::MAC_CMD, egui::Key::M)) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
         // Set the current language for this frame based on settings.
         let lang = effective_lang(&self.settings.language);
         set_current(lang);
@@ -574,6 +618,7 @@ impl LauncherUi {
             ctx.request_repaint();
             return;
         }
+        self.zoom_input(&ctx);
         if self.applied_theme != Some(self.settings.theme) {
             theme::apply(&ctx, self.settings.theme);
             self.applied_theme = Some(self.settings.theme);
@@ -587,6 +632,7 @@ impl LauncherUi {
             motion::apply(&ctx, self.reduce_motion);
             self.applied_motion = Some(self.reduce_motion);
         }
+        self.discord_url = host.discord_url();
         let tokens = Tokens::get(&ctx);
         if self.entries.iter().any(|e| e.job.is_some()) || self.checking {
             ctx.request_repaint_after(Duration::from_millis(50));
@@ -651,7 +697,9 @@ impl LauncherUi {
             .collect();
         let platform = self.platform;
         let caps = self.caps;
-        let desc = self.settings.sort_descending;
+        // The grid offers its own few orders (`views::grid_sort_now`); the table sorts by its columns.
+        let grid = self.settings.view == ViewMode::Grid;
+        let (sort, desc) = if grid { crate::views::grid_sort_now(&self.settings) } else { (self.settings.sort, self.settings.sort_descending) };
         let dir = |o: std::cmp::Ordering| if desc { o.reverse() } else { o };
         // Empty cells (not installed, no release) go last whichever way the column sorts.
         let opt = |a: Option<std::cmp::Ordering>, a_some: bool, b_some: bool| match (a_some, b_some) {
@@ -663,7 +711,7 @@ impl LauncherUi {
         let installed = |e: &AppEntry| e.installed.as_ref().and_then(|i| i.version.clone());
         let latest = |e: &AppEntry| e.release().and_then(|r| r.version.clone());
         list.sort_by(|(ia, a), (ib, b)| {
-            let ord = match self.settings.sort {
+            let ord = match sort {
                 SortKey::Suite => dir(ia.cmp(ib)),
                 SortKey::Name => dir(a.app.name.cmp(b.app.name)),
                 SortKey::Status => {
@@ -677,6 +725,10 @@ impl LauncherUi {
                     let (x, y) = (latest(a), latest(b));
                     opt(x.as_ref().zip(y.as_ref()).map(|(x, y)| x.cmp_precedence(y)), x.is_some(), y.is_some())
                 }
+                SortKey::Frequent => {
+                    let opened = |e: &AppEntry| self.settings.launches.get(e.app.id).copied().unwrap_or(0);
+                    dir(opened(a).cmp(&opened(b)))
+                }
                 SortKey::Released => {
                     let at = |e: &AppEntry| e.release().and_then(|r| r.published_at);
                     let (x, y) = (at(a), at(b));
@@ -686,7 +738,24 @@ impl LauncherUi {
             // Ties keep suite order.
             ord.then(ia.cmp(ib))
         });
+        // The grid shows installed apps first, then the rest under "Not installed" (the sort holds
+        // within each group; the sort is stable). The table keeps the order its column gives.
+        if grid {
+            list.sort_by_key(|(_, e)| !e.status(platform, caps).is_installed());
+        }
         list.into_iter().map(|(_, e)| e.app.id).collect()
+    }
+
+    /// Opens an app, and counts it for "Frequently used".
+    pub(crate) fn launch_app(&mut self, id: &str) {
+        let opened = self.settings.launches.entry(id.to_string()).or_insert(0);
+        *opened = opened.saturating_add(1);
+        self.send(Command::Launch { app: id.to_string() });
+    }
+
+    /// Whether the app on screen under `id` is installed on this computer.
+    pub(crate) fn is_installed(&self, id: &str) -> bool {
+        self.entry(id).is_some_and(|e| e.status(self.platform, self.caps).is_installed())
     }
 
     /// "ArtCraft API", "GitHub" or "ArtCraft API and GitHub": the services behind the releases on

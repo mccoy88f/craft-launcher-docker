@@ -155,6 +155,7 @@
 	Disk image (.dmg)	Lemezkép (.dmg)
 	Debian package (.deb)	Debian-csomag (.deb)
 	RPM package (.rpm)	RPM-csomag (.rpm)
+	Arch package (.pkg.tar.zst)	Arch-csomag (.pkg.tar.zst)
 	Flatpak bundle	Flatpak-csomag
 	Tarball (.tar.gz)	Tömörített archívum (.tar.gz)
 
@@ -293,6 +294,10 @@ filter	Installed	Telepítve
 @msg	{name} installed: {version} (this release publishes no checksum, so only its size was checked)	{name} telepítve: {version} (ehhez a kiadáshoz nem adtak meg ellenőrzőösszeget, ezért csak a fájl méretét ellenőriztük)
 @msg	{name} was removed	{name} eltávolítva
 @msg	{name} is running. Quit it, then try again.	{name} fut. Zárd be, majd próbáld újra.
+@msg	{name} was installed from the {repo} repository or the AUR ({pkg}). Update it with {cmd} or sudo pacman -Syu	{name} a(z) {repo} tárolóból vagy az AUR-ból lett telepítve ({pkg}). Frissítsd ezzel: {cmd} vagy sudo pacman -Syu
+@msg	{name} was installed from the {repo} repository or the AUR ({pkg}). Update it with your AUR helper (for example: yay -S {pkg}) or sudo pacman -Syu	{name} a(z) {repo} tárolóból vagy az AUR-ból lett telepítve ({pkg}). Frissítsd az AUR-segédeddel (például: yay -S {pkg}) vagy ezzel: sudo pacman -Syu
+@msg	{name} was installed from the AUR ({pkg}). Update it with {cmd}	{name} az AUR-ból lett telepítve ({pkg}). Frissítsd ezzel: {cmd}
+@msg	{name} was installed from the AUR ({pkg}). Update it with your AUR helper (for example: yay -S {pkg})	{name} az AUR-ból lett telepítve ({pkg}). Frissítsd az AUR-segédeddel (például: yay -S {pkg})
 
 # Command IDs for menu items (@id)
 # Format: @id<TAB>command_id<TAB>translation
@@ -457,3 +462,12 @@ filter	Installed	Telepítve
 	Replace what's there?	Lecseréli, ami ott van?
 	{path} already exists. Installing {name} will overwrite it.	{path} már létezik. A(z) {name} telepítése felülírja.
 	Replace	Csere
+	Recently updated	Nemrég frissítve
+	Name (A–Z)	Név (A–Z)
+	Name (Z–A)	Név (Z–A)
+	Frequently used	Leggyakrabban használt
+	Next app	Következő alkalmazás
+	Previous app	Előző alkalmazás
+	Show {n} more changes	{n} további változás megjelenítése
+	Last updated: {date}	Utoljára frissítve: {date}
+column	Version	Verzió

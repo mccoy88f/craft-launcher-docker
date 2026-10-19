@@ -138,13 +138,15 @@ The server tries each app's command-line tool once, confined to a work folder
 confines every read and write too). One that refuses isn't run, since it could reach every file
 the server can; the log says what it answered, and the app's **MCP server** box says **Not yet
 compatible with MCP**. Its next release that takes the options works as soon as the app is updated.
-As of October 2026:
+As of 19 October 2026 (each app's latest release):
 
 | | Apps |
 |---|---|
-| Work | PhotoCraft, VectorCraft, EffectCraft, WordCraft, SoundCraft, PdfCraft |
-| Release not compatible, source code is: build from source (below) | DeckCraft, DesignCraft |
-| Not compatible yet | FilmCraft, LightCraft, GridCraft, CadCraft, FigCraft |
+| Work | PhotoCraft 0.10, VectorCraft 0.13, EffectCraft 0.11, WordCraft 0.8, SoundCraft 0.8, PdfCraft 0.9, DesignCraft 0.9, DeckCraft 0.8, FigCraft 0.7 |
+| Not compatible yet (not in their code either) | FilmCraft 0.9, LightCraft 0.9, GridCraft 0.8, CadCraft 0.8 |
+
+DeckCraft before 0.8 and DesignCraft before 0.9 can still have their tool built from source
+(below); update them instead when you can.
 
 ### Building an MCP tool from source
 
