@@ -438,3 +438,6 @@ figcraft	Interface design and prototyping	界面设计与原型制作
 	Show {n} more changes	显示另外 {n} 项更改
 	Last updated: {date}	最后更新：{date}
 column	Version	版本
+	This server's launcher is updated with its Docker image.	此服务器的启动器随其 Docker 镜像一起更新。
+	On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:	在此服务器上，启动器随其 Docker 镜像一起更新。如果尚未更新，请等待启动器的 Docker 版本跟上此版本：
+	craft-launcher-docker on GitHub	GitHub 上的 craft-launcher-docker

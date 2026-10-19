@@ -482,7 +482,8 @@ impl LauncherUi {
                 self.launcher_update = Some(r.clone());
                 // Ask once per new version, unless automatic updates will install it anyway.
                 let automatic = self.settings.auto_update && self.caps.self_update;
-                if fresh && !automatic && self.dialog.is_none() && self.launcher_job.is_none() {
+                // A launcher server's page has nothing to update (its Docker image is): the banner says so.
+                if fresh && !automatic && !self.caps.web_apps && self.dialog.is_none() && self.launcher_job.is_none() {
                     self.dialog = Some(Dialog::LauncherUpdate(r));
                 }
                 fresh

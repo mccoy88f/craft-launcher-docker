@@ -145,7 +145,12 @@ impl LauncherUi {
                             if widgets::glyph_button(ui, widgets::Glyph::Close, tl!("Dismiss")).clicked() {
                                 self.launcher_update = None;
                             }
-                            if self.caps.self_update {
+                            if self.caps.web_apps {
+                                // A launcher server is updated with its Docker image, not from the page.
+                                ui.add_enabled_ui(false, |ui| widgets::button(ui, tl!("Update"), Kind::Primary, 0.0))
+                                    .response
+                                    .on_disabled_hover_text(tl!("This server's launcher is updated with its Docker image."));
+                            } else if self.caps.self_update {
                                 if widgets::button(ui, tl!("Update and restart"), Kind::Primary, 0.0)
                                     .on_hover_text(tl!("Downloads the new version, replaces this one and opens it again"))
                                     .clicked()
@@ -165,6 +170,20 @@ impl LauncherUi {
                             widgets::hud_link(ui, tl!("What's new"), &r.html_url);
                         });
                     });
+                    if self.caps.web_apps {
+                        ui.add_space(6.0);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(tl!(
+                                    "On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:"
+                                ))
+                                .size(12.5)
+                                .color(t.muted),
+                            )
+                            .wrap(),
+                        );
+                        widgets::hud_link(ui, tl!("craft-launcher-docker on GitHub"), artcraft_launcher_core::hosted::SERVER_PROJECT_URL);
+                    }
                 });
             ui.add_space(14.0);
         }

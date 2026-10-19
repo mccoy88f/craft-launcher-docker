@@ -438,3 +438,6 @@ filter	Installed	Nainstalováno
 	Show {n} more changes	Zobrazit dalších změn: {n}
 	Last updated: {date}	Naposledy aktualizováno: {date}
 column	Version	Verze
+	This server's launcher is updated with its Docker image.	Spouštěč tohoto serveru se aktualizuje s jeho obrazem Dockeru.
+	On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:	Na tomto serveru se spouštěč aktualizuje s jeho obrazem Dockeru. Pokud ještě aktualizován nebyl, počkejte, až verze spouštěče pro Docker dožene toto vydání:
+	craft-launcher-docker on GitHub	craft-launcher-docker na GitHubu

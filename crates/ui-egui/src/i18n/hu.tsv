@@ -471,3 +471,6 @@ filter	Installed	Telepítve
 	Show {n} more changes	{n} további változás megjelenítése
 	Last updated: {date}	Utoljára frissítve: {date}
 column	Version	Verzió
+	This server's launcher is updated with its Docker image.	Ennek a szervernek az indítója a Docker-képfájljával frissül.
+	On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:	Ezen a szerveren az indító a Docker-képfájljával frissül. Ha még nem frissült, várd meg, amíg az indító Docker-változata utoléri ezt a kiadást:
+	craft-launcher-docker on GitHub	craft-launcher-docker a GitHubon

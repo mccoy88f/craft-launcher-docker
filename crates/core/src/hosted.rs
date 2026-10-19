@@ -178,6 +178,10 @@ pub enum SourceBuild {
     Failed,
 }
 
+/// Where the launcher server (the Docker image) is developed: a newer ArtCraft Launcher reaches a
+/// server when this project releases it and the administrator deploys the new image.
+pub const SERVER_PROJECT_URL: &str = "https://github.com/mccoy88f/craft-launcher-docker";
+
 /// The folder of files made before each client had its own: kept for the administrator to
 /// download, out of every client's reach.
 pub const PREVIOUS_FILES: &str = "previous";

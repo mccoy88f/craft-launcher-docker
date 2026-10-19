@@ -473,3 +473,6 @@ filter	Installed	インストール済み
 	Show {n} more changes	さらに{n}件の変更を表示
 	Last updated: {date}	最終更新: {date}
 column	Version	バージョン
+	This server's launcher is updated with its Docker image.	このサーバーのランチャーは Docker イメージとともに更新されます。
+	On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:	このサーバーのランチャーは Docker イメージとともに更新されます。まだ更新されていない場合は、ランチャーの Docker 版がこのリリースに追いつくまでお待ちください:
+	craft-launcher-docker on GitHub	GitHub の craft-launcher-docker

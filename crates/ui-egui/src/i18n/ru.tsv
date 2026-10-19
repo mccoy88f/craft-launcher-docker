@@ -466,3 +466,6 @@ filter	Installed	Установлены
 	Show {n} more changes	Показать ещё изменений: {n}
 	Last updated: {date}	Последнее обновление: {date}
 column	Version	Версия
+	This server's launcher is updated with its Docker image.	Лаунчер этого сервера обновляется вместе с его образом Docker.
+	On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:	На этом сервере лаунчер обновляется вместе с его образом Docker. Если он ещё не обновлён, дождитесь, пока Docker-версия лаунчера догонит этот выпуск:
+	craft-launcher-docker on GitHub	craft-launcher-docker на GitHub

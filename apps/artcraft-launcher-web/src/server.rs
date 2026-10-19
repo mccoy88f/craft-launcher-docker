@@ -247,7 +247,7 @@ impl ServerBackend {
         if force && self.admin {
             url.push_str("force=1");
         }
-        let (events, ctx, checking, admin) = (self.events.clone(), self.ctx.clone(), self.checking.clone(), self.admin);
+        let (events, ctx, checking) = (self.events.clone(), self.ctx.clone(), self.checking.clone());
         wasm_bindgen_futures::spawn_local(async move {
             events.borrow_mut().push(Event::CheckStarted);
             ctx.request_repaint();
@@ -262,9 +262,9 @@ impl ServerBackend {
                     for app in r.apps {
                         events.push(Event::Latest { app: app.id, latest: app.latest, from: Origin::GitHub });
                     }
-                    // Only the administrator can do anything about a newer launcher (a new image).
-                    if admin
-                        && let Some(l) = r.launcher
+                    // A newer launcher reaches this server with a new Docker image: everyone is told,
+                    // and the banner says to wait for that image (it can't update from the page).
+                    if let Some(l) = r.launcher
                         && let (Some(latest), Some(this)) = (l.version.as_ref(), version::parse(env!("CARGO_PKG_VERSION")))
                         && version::is_newer(latest, &this)
                     {

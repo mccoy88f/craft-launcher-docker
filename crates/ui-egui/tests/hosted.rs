@@ -437,3 +437,20 @@ fn an_app_that_isnt_compatible_says_so_in_its_mcp_settings() {
     h.get_by_label_contains("It will work once the app supports it");
     assert!(h.query_by_label("Build the MCP tool from source").is_none());
 }
+
+#[test]
+fn a_newer_launcher_waits_for_the_servers_docker_image() {
+    let mut evs = events();
+    evs.push(Event::LauncherUpdate(release("craft-launcher", "9.0.0", false)));
+    let (mut h, sent) = harness_with(false, evs);
+    h.get_by_label_contains("ArtCraft Launcher 9.0.0 is available");
+    // No update from the page, and no desktop installer to download.
+    let button = h.get_by_role_and_label(egui::accesskit::Role::Button, "Update");
+    assert!(format!("{button:?}").contains("disabled: true"), "the update button is greyed out: {button:?}");
+    button.click();
+    h.run_steps(2);
+    assert!(!sent.borrow().iter().any(|c| matches!(c, Command::UpdateLauncher)));
+    assert!(h.query_by_label("Download").is_none() && h.query_by_label("Update and restart").is_none());
+    h.get_by_label_contains("wait for the Docker version of the launcher");
+    h.get_by_label_contains("craft-launcher-docker on GitHub");
+}

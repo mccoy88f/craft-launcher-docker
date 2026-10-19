@@ -468,3 +468,6 @@ filter	Installed	Installées
 	Show {n} more changes	Afficher {n} modifications de plus
 	Last updated: {date}	Dernière mise à jour : {date}
 column	Version	Version
+	This server's launcher is updated with its Docker image.	Le lanceur de ce serveur se met à jour avec son image Docker.
+	On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:	Sur ce serveur, le lanceur se met à jour avec son image Docker. S'il n'a pas encore été mis à jour, attendez que la version Docker du lanceur rattrape cette version :
+	craft-launcher-docker on GitHub	craft-launcher-docker sur GitHub

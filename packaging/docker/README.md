@@ -188,6 +188,15 @@ Without the `cli-builder` service, the box says it's needed. Remove the service 
 | `ARTCRAFT_WEB_DIR` | `/srv/artcraft-launcher` | The launcher's web build, put there by the image. |
 | `ARTCRAFT_LOG` | `info` | `error`, `warn`, `info`, `debug` or `trace`. |
 
+## Updating the launcher itself
+
+The launcher on the server is the Docker image: redeploy it (Coolify: **Redeploy**; elsewhere:
+`docker compose up -d --build`) to bring in a newer version. When ArtCraft Launcher releases a
+version this server doesn't have yet, the page shows it to everyone with a greyed-out **Update**
+button and a note to wait for the Docker version, with a link to
+[craft-launcher-docker](https://github.com/mccoy88f/craft-launcher-docker) to see whether it has
+caught up.
+
 ## How installing works
 
 1. The server looks up each app's latest release on GitHub, once for every visitor (answers
