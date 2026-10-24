@@ -77,6 +77,7 @@
 	Dismiss	Elrejtés
 	Update and restart	Frissítés és újraindítás
 	A new version is available. Would you like to relaunch with the updated version?	Új verzió érhető el. Újraindítod az alkalmazást a frissítéshez?
+	A new version is available. Download it to replace this version?	Új verzió érhető el. Letöltöd, hogy lecseréld vele ezt a verziót?
 	Later	Később
 	What's new	Újdonságok
 	No notes were published with this release.	Ehhez a kiadáshoz nem tettek közzé kiadási információkat.
@@ -95,6 +96,8 @@
 	Updates always use the format an app was installed with.	A frissítések mindig az eredeti telepítés csomagformátumát használják.
 	Running in the background	Futtatás a háttérben
 	Keep running in the tray when the window is closed	Az ablak bezárásakor kerüljön a tálcára
+	ArtCraft Launcher is still running	Az ArtCraft Launcher továbbra is fut
+	It's in the tray: open it or quit it from the tray icon, or turn this off in the settings.	A tálcára került: az ikonjáról megnyitható vagy bezárható, vagy kapcsolja ki ezt a beállításokban.
 	Show the window on the current desktop	Ablak megjelenítése az aktuális asztalon
 	Start ArtCraft Launcher when I log in	ArtCraft Launcher indítása bejelentkezéskor
 	Community	Közösség
@@ -452,6 +455,7 @@ filter	Installed	Telepítve
 	Use default	Alapértelmezett használata
 	New installs use this folder. Updates stay in their current location.	Az új telepítések ezt a mappát használják. A frissítések a jelenlegi helyükön maradnak.
 	Custom folders use AppImage on Linux.	Linuxon az egyéni mappákhoz AppImage szükséges.
+	On Linux, custom folders use AppImage format.	Linuxon az egyéni mappákhoz AppImage szükséges.
 	The system manages install locations here.	Itt a rendszer kezeli a telepítési helyeket.
 @msg	couldn't use install folder {path}: {reason}	a(z) {path} telepítési mappa nem használható: {reason}
 @msg	this release has no AppImage for a custom install folder	ez a kiadás nem tartalmaz AppImage-fájlt egyéni telepítési mappához

@@ -77,6 +77,7 @@
 	Dismiss	Ignora
 	Update and restart	Aggiorna e riavvia
 	A new version is available. Would you like to relaunch with the updated version?	È disponibile una nuova versione. Vuoi riavviare con la versione aggiornata?
+	A new version is available. Download it to replace this version?	È disponibile una nuova versione. Vuoi scaricarla per sostituire questa versione?
 	Later	Più tardi
 	What's new	Novità
 	No notes were published with this release.	Con questo rilascio non sono state pubblicate note.
@@ -94,6 +95,8 @@
 	Updates always use the format an app was installed with.	Gli aggiornamenti usano sempre il formato con cui l'app è stata installata.
 	Running in the background	Esecuzione in background
 	Keep running in the tray when the window is closed	Resta attivo nell'area di notifica quando la finestra viene chiusa
+	ArtCraft Launcher is still running	ArtCraft Launcher è ancora in esecuzione
+	It's in the tray: open it or quit it from the tray icon, or turn this off in the settings.	È nell'area di notifica: aprilo o chiudilo dall'icona nella barra di sistema, o disattiva questo avviso nelle impostazioni.
 	Show the window on the current desktop	Mostra la finestra sulla scrivania attuale
 	Start ArtCraft Launcher when I log in	Avvia ArtCraft Launcher all'accesso
 	Community	Community
@@ -426,6 +429,7 @@ filter	Installed	Installate
 	Use default	Usa predefinita
 	New installs use this folder. Updates stay in their current location.	Le nuove installazioni usano questa cartella. Gli aggiornamenti restano dove si trovano.
 	Custom folders use AppImage on Linux.	Su Linux le cartelle personalizzate usano AppImage.
+	On Linux, custom folders use AppImage format.	Su Linux, le cartelle personalizzate usano il formato AppImage.
 	The system manages install locations here.	Qui le posizioni di installazione sono gestite dal sistema.
 @msg	couldn't use install folder {path}: {reason}	impossibile usare la cartella di installazione {path}: {reason}
 @msg	this release has no AppImage for a custom install folder	questo rilascio non ha un AppImage per una cartella di installazione personalizzata

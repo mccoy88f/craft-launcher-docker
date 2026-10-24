@@ -162,7 +162,9 @@ fn simplified_chinese_switches_persists_and_keeps_install_actions() {
     h.run_steps(2);
     // Opening Settings doesn't load the (large) Chinese font: the picker names it in English.
     assert!(!artcraft_launcher_ui_egui::theme::cjk_font_loaded(artcraft_launcher_ui_egui::i18n::Lang::ZH_CN));
-    h.get_by_label("Simplified Chinese").click();
+    // The picker sorts by native name, so 简体中文 comes last, below the fold of the popup's
+    // scroll area: click it through AccessKit, which doesn't need it on screen.
+    h.get_by_label("Simplified Chinese").click_accesskit();
     h.run_steps(3);
     if !artcraft_launcher_ui_egui::theme::cjk_font_available(artcraft_launcher_ui_egui::i18n::Lang::ZH_CN) {
         // No Chinese font: choosing it keeps the UI in English, and Settings says why.

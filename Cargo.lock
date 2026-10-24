@@ -285,11 +285,12 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "artcraft-launcher"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "artcraft-launcher-core",
  "artcraft-launcher-native",
  "artcraft-launcher-ui-egui",
+ "craft-quit",
  "eframe",
  "egui",
  "env_logger",
@@ -310,8 +311,9 @@ dependencies = [
 
 [[package]]
 name = "artcraft-launcher-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
+ "jiff",
  "semver",
  "serde",
  "serde_json",
@@ -319,12 +321,13 @@ dependencies = [
 
 [[package]]
 name = "artcraft-launcher-native"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "artcraft-launcher-core",
  "dirs 6.0.0",
  "dunce",
  "flate2",
+ "getrandom 0.3.4",
  "log",
  "plist",
  "serde",
@@ -333,13 +336,15 @@ dependencies = [
  "tar",
  "tempfile",
  "ureq",
+ "verifysign",
  "winreg",
+ "winsafe",
  "zip 8.6.0",
 ]
 
 [[package]]
 name = "artcraft-launcher-server"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "artcraft-launcher-core",
  "artcraft-launcher-native",
@@ -362,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "artcraft-launcher-ui-egui"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "artcraft-launcher-core",
  "egui",
@@ -381,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "artcraft-launcher-web"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "artcraft-launcher-core",
  "artcraft-launcher-ui-egui",
@@ -1022,6 +1027,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "craft-quit"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=f58bc1a3df490992d633393d0898af0588ce882c#f58bc1a3df490992d633393d0898af0588ce882c"
+dependencies = [
+ "dispatch2",
+ "egui",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
 ]
 
 [[package]]
@@ -5337,6 +5353,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "verifysign"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6acfcc42a8d44f340d001193d97ef56bf33210b51ad760ae8308c97d5241ca51"
+dependencies = [
+ "core-foundation 0.10.1",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "version-compare"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6129,6 +6155,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "winsafe"
+version = "0.0.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ef0ffc427f045c0cc9ebffd6f4f91153dcd2a1547b5c3c29ee3f541e16e95c6"
+
+[[package]]
 name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6221,7 +6253,11 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.6.0"
+version = "0.7.0"
+dependencies = [
+ "jiff",
+ "semver",
+]
 
 [[package]]
 name = "yoke"

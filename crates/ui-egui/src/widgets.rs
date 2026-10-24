@@ -123,11 +123,20 @@ pub fn nav_icon(ui: &mut Ui, symbol: &str, tip: &str, height: f32, busy: bool) -
 /// The title bar's own controls leave this band alone.
 const RESIZE_EDGE: f32 = 5.0;
 
+/// How wide the resize band along the window's edges is right now: nothing while the window is
+/// maximized or full screen, when `window_edges` offers no resizing and the edges are the screen's,
+/// so the controls there reach all the way to the corner (#374).
+fn resize_band(ctx: &egui::Context) -> f32 {
+    let (maximized, fullscreen) = ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.viewport().fullscreen.unwrap_or(false)));
+    if maximized || fullscreen { 0.0 } else { RESIZE_EDGE }
+}
+
 /// Custom title bars: dragging the header's empty space moves the window, and double-clicking it
 /// maximizes or restores it. Call before drawing the header, so its controls stay on top.
 pub fn title_bar_drag(ui: &mut Ui) {
     let r = ui.max_rect();
-    let rect = Rect::from_min_max(r.min + vec2(RESIZE_EDGE, RESIZE_EDGE), r.max - vec2(RESIZE_EDGE, 0.0));
+    let band = resize_band(ui.ctx());
+    let rect = Rect::from_min_max(r.min + vec2(band, band), r.max - vec2(band, 0.0));
     let resp = ui.interact(rect, ui.id().with("title-bar"), Sense::click_and_drag());
     if resp.drag_started_by(egui::PointerButton::Primary) {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
@@ -168,9 +177,11 @@ pub fn window_buttons(ui: &mut Ui, height: f32) {
 fn window_button(ui: &mut Ui, button: WindowButton, height: f32) -> Response {
     let t = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(46.0, height), Sense::hover());
-    // Clickable below the resize band along the top (and, for close, the right edge).
-    let right = if button == WindowButton::Close { RESIZE_EDGE } else { 0.0 };
-    let hit = Rect::from_min_max(rect.min + vec2(0.0, RESIZE_EDGE), rect.max - vec2(right, 0.0));
+    // Clickable below the resize band along the top (and, for close, the right edge); maximized,
+    // there is no band and the close button takes the screen's corner, as Windows' own does.
+    let band = resize_band(ui.ctx());
+    let right = if button == WindowButton::Close { band } else { 0.0 };
+    let hit = Rect::from_min_max(rect.min + vec2(0.0, band), rect.max - vec2(right, 0.0));
     let resp = ui.interact(hit, ui.id().with(("window-button", button as u8)), Sense::click());
     let (fill, ink) = match (button, resp.hovered()) {
         (WindowButton::Close, true) => (Color32::from_rgb(0xc4, 0x2b, 0x1c), Color32::WHITE),
@@ -296,17 +307,26 @@ pub enum Kind {
     Danger,
 }
 
-/// The natural width of a button, including its horizontal padding.
+/// A button's label, laid out: [`button`] paints it, [`button_width`] measures it.
+fn button_label(ui: &Ui, text: &str) -> Arc<Galley> {
+    caps(ui, text, theme::HUD_SIZE, theme::mono_bold(), theme::BUTTON_SPACING, Tokens::get(ui.ctx()).ink)
+}
+
+/// A button's width around its label: 16 px of padding each side, at least `minimum`.
+fn button_width_of(label: &Galley, minimum: f32) -> f32 {
+    (label.size().x + 32.0).max(minimum)
+}
+
+/// The natural width of a button, including its horizontal padding: what [`button`] takes.
 pub fn button_width(ui: &Ui, text: &str, minimum: f32) -> f32 {
-    let galley = caps(ui, text, theme::HUD_SIZE, theme::mono_bold(), theme::BUTTON_SPACING, Tokens::get(ui.ctx()).ink);
-    (galley.size().x + 32.0).max(minimum)
+    button_width_of(&button_label(ui, text), minimum)
 }
 
 /// A square button with a mono upper-case label, at least `width` wide.
 pub fn button(ui: &mut Ui, text: &str, kind: Kind, width: f32) -> Response {
     let t = Tokens::get(ui.ctx());
-    let galley = caps(ui, text, theme::HUD_SIZE, theme::mono_bold(), theme::BUTTON_SPACING, t.ink);
-    let size = vec2((galley.size().x + 32.0).max(width), theme::CONTROL_H);
+    let galley = button_label(ui, text);
+    let size = vec2(button_width_of(&galley, width), theme::CONTROL_H);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     let hovered = resp.hovered() && enabled;
@@ -350,36 +370,8 @@ pub fn cells_apart<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
         for (opt, cell) in ordered {
-            let on = *value == *opt;
-            let label = hud_galley(ui, cell.label, t.ink);
-            let count = cell.count.map(|(n, highlight)| {
-                let c = if on { t.invert_fg.gamma_multiply(0.6) } else { highlight.filter(|_| n > 0).unwrap_or(t.faint) };
-                (hud_galley(ui, &n.to_string(), c), c)
-            });
-            let w = label.size().x + count.as_ref().map_or(0.0, |(g, _)| g.size().x + 8.0) + 24.0;
-            let (rect, resp) = ui.allocate_exact_size(vec2(w, theme::CONTROL_H), Sense::click());
-            let hovered = resp.hovered();
-            let (fill, ink) = match (on, hovered) {
-                (true, _) => (t.invert_bg, t.invert_fg),
-                (false, true) => (t.sunken, t.ink_strong),
-                (false, false) => (Color32::TRANSPARENT, t.muted),
-            };
-            ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
-            let text_rect = rect.shrink2(vec2(12.0, 0.0));
-            let label_w = label.size().x;
-            paint_left(ui, text_rect, label, ink);
-            if let Some((g, c)) = count {
-                paint_left(ui, text_rect.with_min_x(text_rect.left() + label_w + 8.0), g, c);
-            }
-            let name = match cell.count {
-                Some((n, _)) => format!("{} {n}", cell.label),
-                None => cell.label.to_string(),
-            };
-            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, &name));
-            if resp.on_hover_text(cell.tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
-                *value = *opt;
-                changed = true;
-            }
+            let (rect, chosen) = paint_cell(ui, value, opt, cell, &t);
+            changed |= chosen;
             rects.push(rect);
         }
     });
@@ -398,6 +390,43 @@ pub fn cells_apart<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(
         }
     }
     changed
+}
+
+/// Paints one cell: its label and count over a hairline box, and its hover/click behaviour.
+/// Returns the cell's rect (for the row's hairlines) and whether the click chose it.
+fn paint_cell<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, opt: &T, cell: &Cell<'_>, t: &Tokens) -> (Rect, bool) {
+    let mut changed = false;
+    let on = *value == *opt;
+    let label = hud_galley(ui, cell.label, t.ink);
+    let count = cell.count.map(|(n, highlight)| {
+        let c = if on { t.invert_fg.gamma_multiply(0.6) } else { highlight.filter(|_| n > 0).unwrap_or(t.faint) };
+        (hud_galley(ui, &n.to_string(), c), c)
+    });
+    let w = label.size().x + count.as_ref().map_or(0.0, |(g, _)| g.size().x + 8.0) + 24.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, theme::CONTROL_H), Sense::click());
+    let hovered = resp.hovered();
+    let (fill, ink) = match (on, hovered) {
+        (true, _) => (t.invert_bg, t.invert_fg),
+        (false, true) => (t.sunken, t.ink_strong),
+        (false, false) => (Color32::TRANSPARENT, t.muted),
+    };
+    ui.painter().rect_filled(rect, CornerRadius::ZERO, fill);
+    let text_rect = rect.shrink2(vec2(12.0, 0.0));
+    let label_w = label.size().x;
+    paint_left(ui, text_rect, label, ink);
+    if let Some((g, c)) = count {
+        paint_left(ui, text_rect.with_min_x(text_rect.left() + label_w + 8.0), g, c);
+    }
+    let name = match cell.count {
+        Some((n, _)) => format!("{} {n}", cell.label),
+        None => cell.label.to_string(),
+    };
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, &name));
+    if resp.on_hover_text(cell.tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+        *value = *opt;
+        changed = true;
+    }
+    (rect, changed)
 }
 
 /// A slim square progress bar with a caption above it.

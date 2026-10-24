@@ -75,6 +75,7 @@
 	Dismiss	Ignorer
 	Update and restart	Mettre à jour et redémarrer
 	A new version is available. Would you like to relaunch with the updated version?	Une nouvelle version est disponible. Redémarrer avec la nouvelle version ?
+	A new version is available. Download it to replace this version?	Une nouvelle version est disponible. La télécharger pour remplacer cette version ?
 	Later	Plus tard
 	What's new	Nouveautés
 	No notes were published with this release.	Aucune note n'a été publiée avec cette version.
@@ -93,6 +94,8 @@
 	Updates always use the format an app was installed with.	Les mises à jour utilisent toujours le format avec lequel l'application a été installée.
 	Running in the background	Exécution en arrière-plan
 	Keep running in the tray when the window is closed	Rester actif dans la zone de notification à la fermeture de la fenêtre
+	ArtCraft Launcher is still running	ArtCraft Launcher est toujours en cours
+	It's in the tray: open it or quit it from the tray icon, or turn this off in the settings.	Il est dans la zone de notification : ouvrez-le ou quittez-le depuis son icône, ou désactivez ceci dans les réglages.
 	Show the window on the current desktop	Afficher la fenêtre sur le bureau actuel
 	Start ArtCraft Launcher when I log in	Lancer ArtCraft Launcher à l'ouverture de session
 	Community	Communauté
@@ -449,6 +452,7 @@ filter	Installed	Installées
 	Use default	Par défaut
 	New installs use this folder. Updates stay in their current location.	Les nouvelles installations utilisent ce dossier. Les mises à jour conservent leur emplacement actuel.
 	Custom folders use AppImage on Linux.	Les dossiers personnalisés utilisent AppImage sous Linux.
+	On Linux, custom folders use AppImage format.	Les dossiers personnalisés utilisent AppImage sous Linux.
 	The system manages install locations here.	Le système gère les emplacements d’installation ici.
 @msg	couldn't use install folder {path}: {reason}	impossible d’utiliser le dossier d’installation {path} : {reason}
 @msg	this release has no AppImage for a custom install folder	cette version ne propose pas d’AppImage pour un dossier d’installation personnalisé

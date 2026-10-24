@@ -808,6 +808,28 @@ fn every_table_column_sorts_both_ways() {
     assert_eq!(o.first().map(String::as_str), Some("WordCraft"), "{o:?}");
 }
 
+/// The first close to the tray is explained once, by a system notification (#45, #215).
+#[test]
+fn the_first_close_to_the_tray_is_explained_once() {
+    struct Notices(Vec<(String, String)>);
+    impl Host for Notices {
+        fn notify(&mut self, title: &str, body: &str) {
+            self.0.push((title.to_string(), body.to_string()));
+        }
+    }
+    let (mut h, _) = harness(ViewMode::Grid, egui::Theme::Dark, true);
+    h.run_steps(6);
+    let mut host = Notices(Vec::new());
+    let l = h.state_mut().as_mut().unwrap();
+    assert!(!l.settings.tray_hint_shown);
+    l.hidden_to_tray(&mut host);
+    l.hidden_to_tray(&mut host);
+    assert!(l.settings.tray_hint_shown);
+    assert_eq!(host.0.len(), 1, "{:?}", host.0);
+    assert_eq!(host.0[0].0, "ArtCraft Launcher is still running");
+    assert!(host.0[0].1.contains("tray icon"), "{}", host.0[0].1);
+}
+
 #[test]
 fn settings_link_to_discord() {
     let (mut h, _) = harness(ViewMode::Grid, egui::Theme::Dark, true);
@@ -1256,6 +1278,47 @@ fn custom_title_bar_has_window_buttons() {
     assert!(closes, "the close button asks the window to close (the shell decides whether that hides it to the tray)");
 }
 
+/// Maximized, the window's top-right pixel is the screen's corner: there is no resize band there,
+/// so it belongs to the close button, as it does with Windows' own caption buttons (#374).
+#[test]
+fn maximized_the_close_button_reaches_the_screens_corner() {
+    let (mut h, _) = harness_with_title_bar(events(), ViewMode::Grid, egui::Theme::Dark, true, 1.0, artcraft_launcher_ui_egui::TitleBar::Custom);
+    h.run_steps(6);
+    let set_maximized = |h: &mut Harness<'_, Option<LauncherUi>>, maximized: bool| {
+        h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().maximized = Some(maximized);
+        h.run_steps(2);
+    };
+    // Presses and releases at `pos`, and returns what the window was asked to do.
+    let click = |h: &mut Harness<'_, Option<LauncherUi>>, pos: egui::Pos2| -> Vec<egui::ViewportCommand> {
+        let mut asked = Vec::new();
+        for pressed in [true, false] {
+            let input = h.input_mut();
+            input.events.push(egui::Event::PointerMoved(pos));
+            input.events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.step();
+            asked.extend(h.output().viewport_output.values().flat_map(|v| v.commands.iter().cloned()));
+        }
+        asked
+    };
+    // Windowed, the clickable area stops short of the button's top-right corner by the resize
+    // band; maximized, it reaches it.
+    let windowed = h.get_by_label("Close").rect();
+    set_maximized(&mut h, true);
+    let maximized = h.get_by_label("Close").rect();
+    assert!(maximized.top() < windowed.top() && maximized.right() > windowed.right(), "windowed {windowed:?}, maximized {maximized:?}");
+    // The button's own corner stands in for the screen's: the harness keeps the app 8 px in from
+    // the window. Windowed, it is beyond the band and egui's click tolerance; maximized, it closes.
+    let corner = egui::pos2(maximized.right() - 0.5, maximized.top() + 0.5);
+    let asked = click(&mut h, corner);
+    assert!(asked.contains(&egui::ViewportCommand::Close), "maximized: {asked:?}");
+    set_maximized(&mut h, false);
+    let asked = click(&mut h, corner);
+    assert!(!asked.contains(&egui::ViewportCommand::Close), "windowed: {asked:?}");
+    // And the window's own corner is still for resizing.
+    let asked = click(&mut h, egui::pos2(1180.0 - 0.5, 0.5));
+    assert!(asked.iter().any(|c| matches!(c, egui::ViewportCommand::BeginResize(_))), "{asked:?}");
+}
+
 #[test]
 fn clicking_a_card_opens_its_details_drawer() {
     let (mut h, _sent) = harness(ViewMode::Grid, egui::Theme::Dark, true);
@@ -1598,6 +1661,60 @@ fn the_toolbar_has_no_filter_dropdown() {
 }
 
 #[test]
+fn saved_filters_are_migrated_on_ui_construction() {
+    use artcraft_launcher_ui_egui::settings::Filter;
+
+    for (saved, expected) in [
+        (r#"{"filter":"All"}"#, Filter::All),
+        (r#"{"filter":"Installed"}"#, Filter::All),
+        (r#"{"filter":"Updates"}"#, Filter::All),
+        (r#"{"filter":"NotInstalled"}"#, Filter::All),
+        (r#"{"filter":"Hidden"}"#, Filter::Hidden),
+    ] {
+        let mut settings: Settings = serde_json::from_str(saved).unwrap();
+        settings.language = "en".into(); // Avoid the global system-locale probe in parallel tests.
+        settings.last_check = Some(NOW);
+        let backend = Fake {
+            events: Vec::new(),
+            sent: Rc::default(),
+            manage: true,
+            pictures: Rc::default(),
+            asked: Vec::new(),
+            clock: Rc::new(Cell::new(NOW)),
+        };
+        let ui = LauncherUi::new(&egui::Context::default(), Box::new(backend), settings);
+        assert_eq!(ui.settings.filter, expected, "{saved}");
+        assert_eq!(ui.settings.last_check, Some(NOW));
+    }
+}
+
+/// Checks that, at one window width, every header control stays inside the window and clear of
+/// the brand text, that a custom title bar's buttons are there and inside, and snapshots the
+/// three widths that matter visually.
+fn assert_header_at_width(h: &mut Harness<'_, Option<LauncherUi>>, bar: artcraft_launcher_ui_egui::TitleBar, theme: egui::Theme, width: f32) {
+    for label in ["Show apps as cards", "Show apps as a table", "Settings", "Check for updates"] {
+        let rect = h.get_by_label(label).rect();
+        assert!(rect.left() >= 0.0 && rect.right() <= width, "{bar:?} {width}: {label} {rect:?}");
+        if let Some(text) = h.query_by_label("Craft App Suite") {
+            assert!(!rect.intersects(text.rect()), "{bar:?} {width}: Craft App Suite overlaps {label} {rect:?}");
+        }
+    }
+    if bar == artcraft_launcher_ui_egui::TitleBar::Custom {
+        for label in ["Minimize", "Maximize", "Close"] {
+            let rect = h.get_by_label(label).rect();
+            assert!(rect.left() >= 0.0 && rect.right() <= width, "{width}: {label} {rect:?}");
+        }
+    }
+    if width == 1180.0 {
+        assert!(h.query_by_label("Launcher").is_none());
+        h.get_by_label("Craft App Suite");
+    }
+    if [720.0, 800.0, 1180.0].contains(&width) {
+        snapshot(h, &format!("header-{theme:?}-{bar:?}-{width}"));
+    }
+}
+
+#[test]
 fn narrow_header_keeps_the_view_switch_clear_of_brand_text() {
     use artcraft_launcher_ui_egui::TitleBar;
     for theme in [egui::Theme::Dark, egui::Theme::Light] {
@@ -1606,26 +1723,7 @@ fn narrow_header_keeps_the_view_switch_clear_of_brand_text() {
             for width in (720..=1180).step_by(10).chain([720, 1180]).map(|w| w as f32) {
                 h.set_size(egui::vec2(width, 900.0));
                 h.run_steps(6);
-                for label in ["Show apps as cards", "Show apps as a table", "Settings", "Check for updates"] {
-                    let rect = h.get_by_label(label).rect();
-                    assert!(rect.left() >= 0.0 && rect.right() <= width, "{bar:?} {width}: {label} {rect:?}");
-                    if let Some(text) = h.query_by_label("Craft App Suite") {
-                        assert!(!rect.intersects(text.rect()), "{bar:?} {width}: Craft App Suite overlaps {label} {rect:?}");
-                    }
-                }
-                if bar == TitleBar::Custom {
-                    for label in ["Minimize", "Maximize", "Close"] {
-                        let rect = h.get_by_label(label).rect();
-                        assert!(rect.left() >= 0.0 && rect.right() <= width, "{width}: {label} {rect:?}");
-                    }
-                }
-                if width == 1180.0 {
-                    assert!(h.query_by_label("Launcher").is_none());
-                    h.get_by_label("Craft App Suite");
-                }
-                if [720.0, 800.0, 1180.0].contains(&width) {
-                    snapshot(&mut h, &format!("header-{theme:?}-{bar:?}-{width}"));
-                }
+                assert_header_at_width(&mut h, bar, theme, width);
             }
             h.get_by_label("Show apps as a table").click();
             h.run_steps(2);

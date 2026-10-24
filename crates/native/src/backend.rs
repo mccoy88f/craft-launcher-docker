@@ -86,6 +86,38 @@ struct Shared {
     pictures_busy: Mutex<std::collections::HashSet<&'static str>>,
 }
 
+#[derive(Clone, Copy)]
+enum BusyFlag {
+    Checking,
+    Detecting,
+}
+
+struct BusyGuard {
+    shared: Arc<Shared>,
+    flag: BusyFlag,
+}
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        let flag = match self.flag {
+            BusyFlag::Checking => &self.shared.checking,
+            BusyFlag::Detecting => &self.shared.detecting,
+        };
+        flag.store(false, Ordering::SeqCst);
+    }
+}
+
+struct JobGuard {
+    shared: Arc<Shared>,
+    app_id: String,
+}
+
+impl Drop for JobGuard {
+    fn drop(&mut self) {
+        self.shared.jobs.lock().unwrap_or_else(PoisonError::into_inner).remove(&self.app_id);
+    }
+}
+
 impl Shared {
     fn emit(&self, event: Event) {
         self.events.lock().unwrap_or_else(PoisonError::into_inner).push(event);
@@ -179,10 +211,12 @@ impl NativeBackend {
             return;
         }
         let shared = self.shared.clone();
+        let busy = BusyGuard { shared: shared.clone(), flag: BusyFlag::Detecting };
         let paths = self.paths.clone();
         let platform = self.platform;
         let options = self.options();
         std::thread::spawn(move || {
+            let busy = busy;
             // Leftovers from interrupted installs or older versions of the launcher. A paused
             // download stays a month; a finished one kept after a failed install, a week.
             http::clean_downloads(&paths.downloads(), Duration::from_secs(30 * 86_400), Duration::from_secs(7 * 86_400));
@@ -203,7 +237,7 @@ impl NativeBackend {
             for app in &SUITE {
                 report_partial(app, &shared, &paths, platform, &options);
             }
-            shared.detecting.store(false, Ordering::SeqCst);
+            drop(busy);
         });
     }
 
@@ -227,64 +261,21 @@ impl NativeBackend {
             return;
         }
         let shared = self.shared.clone();
+        let busy = BusyGuard { shared: shared.clone(), flag: BusyFlag::Checking };
         let paths = self.paths.clone();
         let platform = self.platform;
         let pre = self.options().prereleases;
         let mirror = local_mirror();
         std::thread::spawn(move || {
+            let busy = busy;
             shared.emit(Event::CheckStarted);
-            let (feed, fallback) = if let Some(base) = &mirror {
-                // A local mirror answers for everything: GitHub is never asked.
-                (local_feed(&http, base), Fallback { trust_feed: true, github_every: GITHUB_FALLBACK_EVERY })
-            } else if pre {
-                // The feed serves stable releases only; with pre-releases on, GitHub decides.
-                (None, Fallback { trust_feed: false, github_every: EARLY_GITHUB_EVERY })
-            } else {
-                feed_and_fallback(&http, &paths, &shared)
-            };
+            let (feed, fallback) = check_plan(&http, mirror.as_ref(), pre, &paths, &shared);
             if let Some(f) = &feed {
                 shared.emit(Event::Notices { announcements: f.announcements.clone(), alerts: f.alerts.clone() });
             }
             let now = crate::now();
             let queue = Mutex::new(SUITE.iter().chain(std::iter::once(&LAUNCHER)).collect::<Vec<&CraftApp>>());
-            let sources = Mutex::new(Vec::new());
-            std::thread::scope(|scope| {
-                for _ in 0..WORKERS {
-                    scope.spawn(|| {
-                        loop {
-                            let Some(app) = queue.lock().unwrap_or_else(PoisonError::into_inner).pop() else { break };
-                            let (latest, from, used) = match &mirror {
-                                Some(_) => mirror_latest(app, feed.as_ref(), now),
-                                None => latest_for(app, feed.as_ref(), fallback, source.as_ref(), &shared, pre, force, now),
-                            };
-                            if let Some(used) = used {
-                                sources.lock().unwrap_or_else(PoisonError::into_inner).push(used);
-                            }
-                            if app.id == LAUNCHER_ID {
-                                // Is there a newer ArtCraft Launcher?
-                                if let Some(LatestRelease::Found(r)) = latest
-                                    && let (Some(newest), Some(current)) = (r.version.as_ref(), crate::self_update::current_version())
-                                    && version::is_newer(newest, &current)
-                                    && !crate::self_update::just_updated_to(&paths, &r)
-                                {
-                                    shared.self_install.get_or_init(crate::self_update::current);
-                                    *shared.launcher_release.lock().unwrap_or_else(PoisonError::into_inner) = Some(r.clone());
-                                    shared.emit(Event::LauncherUpdate(r));
-                                }
-                                continue;
-                            }
-                            let Some(latest) = latest else { continue };
-                            if let LatestRelease::Found(r) = &latest {
-                                shared.latest.lock().unwrap_or_else(PoisonError::into_inner).insert(app.id.to_string(), r.clone());
-                            }
-                            if !matches!(latest, LatestRelease::Failed(_)) {
-                                shared.answered.lock().unwrap_or_else(PoisonError::into_inner).insert(app.id.to_string());
-                            }
-                            shared.emit(Event::Latest { app: app.id.to_string(), latest, from });
-                        }
-                    });
-                }
-            });
+            let sources = sweep(&queue, &mirror, feed.as_ref(), fallback, &source, &shared, &paths, pre, force, now);
             source.save();
             {
                 let answered = shared.answered.lock().unwrap_or_else(PoisonError::into_inner);
@@ -297,20 +288,11 @@ impl NativeBackend {
             for app in &SUITE {
                 report_partial(app, &shared, &paths, platform, &options);
             }
-            let sources = sources.into_inner().unwrap_or_else(PoisonError::into_inner);
-            let source_used = if sources.contains(&Source::Cache) {
-                Source::Cache
-            } else if sources.contains(&Source::GitHubPages) {
-                Source::GitHubPages
-            } else if sources.contains(&Source::GitHubApi) {
-                Source::GitHubApi
-            } else {
-                Source::Feed
-            };
+            let source_used = source_used_of(&sources);
             let at = crate::now();
             *shared.last_check.lock().unwrap_or_else(PoisonError::into_inner) = Some(at);
-            shared.checking.store(false, Ordering::SeqCst);
             let rate_limited_until = limit_notice(source_used, source.rate_limited_until());
+            drop(busy);
             shared.emit(Event::CheckFinished { at, source: source_used, rate_limited_until });
         });
     }
@@ -337,11 +319,13 @@ impl NativeBackend {
             return;
         }
         let shared = self.shared.clone();
+        let job = JobGuard { shared: shared.clone(), app_id: app.id.to_string() };
         let paths = self.paths.clone();
         let http = self.http.clone();
         let platform = self.platform;
         let options = self.options();
         std::thread::spawn(move || {
+            let job = job;
             let existing = shared.installed.lock().unwrap_or_else(PoisonError::into_inner).get(app.id).cloned();
             let record = shared.manifest.lock().unwrap_or_else(PoisonError::into_inner).apps.get(app.id).cloned();
             let result = if uninstall {
@@ -401,7 +385,7 @@ impl NativeBackend {
                 };
             }
             shared.emit(Event::Detected { app: app.id.to_string(), installed: found });
-            shared.jobs.lock().unwrap_or_else(PoisonError::into_inner).remove(app.id);
+            drop(job);
             shared.emit(Event::JobFinished { app: app.id.to_string(), result });
         });
     }
@@ -425,8 +409,10 @@ impl NativeBackend {
             }
             jobs.insert(id.clone(), stop.clone());
         }
+        let job = JobGuard { shared: self.shared.clone(), app_id: id.clone() };
         let (shared, paths, http) = (self.shared.clone(), self.paths.clone(), self.http.clone());
         std::thread::spawn(move || {
+            let job = job;
             let mut last_emit = Instant::now() - Duration::from_secs(1);
             let mut phase = |p: JobPhase| {
                 if matches!(p, JobPhase::Downloading { done, total } if done != total && done != 0) && last_emit.elapsed() < Duration::from_millis(50)
@@ -444,7 +430,7 @@ impl NativeBackend {
                 Some(http) => crate::self_update::update(&install, &release, platform, http, &paths, &stop, &mut phase, &last),
                 None => Err("secure connections aren't available on this system".into()),
             };
-            shared.jobs.lock().unwrap_or_else(PoisonError::into_inner).remove(LAUNCHER_ID);
+            drop(job);
             match result {
                 Ok(()) => shared.emit(Event::LauncherRestarting),
                 Err(e) => {
@@ -662,6 +648,96 @@ fn planned_download(
     artcraft_launcher_core::release::valid_file_name(&asset.name).then(|| (install::download_path(paths, &asset), asset.size))
 }
 
+/// What one check asks: which feed to poll (a local mirror trumps everything), and how much to
+/// lean on GitHub.
+fn check_plan(http: &Http, mirror: Option<&String>, pre: bool, paths: &Paths, shared: &Arc<Shared>) -> (Option<Feed>, Fallback) {
+    if let Some(base) = mirror {
+        // A local mirror answers for everything: GitHub is never asked.
+        (local_feed(http, base), Fallback { trust_feed: true, github_every: GITHUB_FALLBACK_EVERY })
+    } else if pre {
+        // The feed serves stable releases only; with pre-releases on, GitHub decides.
+        (None, Fallback { trust_feed: false, github_every: EARLY_GITHUB_EVERY })
+    } else {
+        feed_and_fallback(http, paths, shared)
+    }
+}
+
+/// Answers the apps from a shared queue over a few workers, and returns which sources answered.
+#[allow(clippy::too_many_arguments)]
+fn sweep(
+    queue: &Mutex<Vec<&'static CraftApp>>,
+    mirror: &Option<String>,
+    feed: Option<&Feed>,
+    fallback: Fallback,
+    source: &Arc<dyn ReleaseSource>,
+    shared: &Arc<Shared>,
+    paths: &Paths,
+    pre: bool,
+    force: bool,
+    now: i64,
+) -> Vec<Source> {
+    let sources = Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for _ in 0..WORKERS {
+            scope.spawn(|| {
+                loop {
+                    let Some(app) = queue.lock().unwrap_or_else(PoisonError::into_inner).pop() else { break };
+                    let (latest, from, used) = match mirror {
+                        Some(_) => mirror_latest(app, feed, now),
+                        None => latest_for(app, feed, fallback, source.as_ref(), shared, pre, force, now),
+                    };
+                    if let Some(used) = used {
+                        sources.lock().unwrap_or_else(PoisonError::into_inner).push(used);
+                    }
+                    check_app(app, latest, from, shared, paths);
+                }
+            });
+        }
+    });
+    sources.into_inner().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Publishes one app's answer to the shared state, or handles the launcher's own update check
+/// first (it doesn't appear in the grid, so it has no card of its own to publish to).
+fn check_app(app: &'static CraftApp, latest: Option<LatestRelease>, from: Origin, shared: &Arc<Shared>, paths: &Paths) {
+    if app.id == LAUNCHER_ID {
+        launcher_update(paths, latest, shared);
+        return;
+    }
+    let Some(latest) = latest else { return };
+    if let LatestRelease::Found(r) = &latest {
+        shared.latest.lock().unwrap_or_else(PoisonError::into_inner).insert(app.id.to_string(), r.clone());
+    }
+    if !matches!(latest, LatestRelease::Failed(_)) {
+        shared.answered.lock().unwrap_or_else(PoisonError::into_inner).insert(app.id.to_string());
+    }
+    shared.emit(Event::Latest { app: app.id.to_string(), latest, from });
+}
+
+/// Offers the launcher's own update when its answer is a newer release than the running one.
+fn launcher_update(paths: &Paths, latest: Option<LatestRelease>, shared: &Arc<Shared>) {
+    let Some(LatestRelease::Found(r)) = latest else { return };
+    let (Some(newest), Some(current)) = (r.version.as_ref(), crate::self_update::current_version()) else { return };
+    if version::is_newer(newest, &current) && !crate::self_update::just_updated_to(paths, &r) {
+        shared.self_install.get_or_init(crate::self_update::current);
+        *shared.launcher_release.lock().unwrap_or_else(PoisonError::into_inner) = Some(r.clone());
+        shared.emit(Event::LauncherUpdate(r));
+    }
+}
+
+/// The weakest source that answered this check; it sets the wording of the "checked with" line.
+fn source_used_of(sources: &[Source]) -> Source {
+    if sources.contains(&Source::Cache) {
+        Source::Cache
+    } else if sources.contains(&Source::GitHubPages) {
+        Source::GitHubPages
+    } else if sources.contains(&Source::GitHubApi) {
+        Source::GitHubApi
+    } else {
+        Source::Feed
+    }
+}
+
 /// How much the feed is trusted in one check, and how freely GitHub may be asked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Fallback {
@@ -731,14 +807,17 @@ fn latest_for(
     force: bool,
     now: i64,
 ) -> (Option<LatestRelease>, Origin, Option<Source>) {
+    let repo = feed_repo(feed, app);
     if fallback.trust_feed {
         match feed.map(|f| f.answer(app, now)) {
-            Some(FeedAnswer::Fresh(Some(r))) => return (Some(LatestRelease::Found(r)), Origin::ArtCraftApi, Some(Source::Feed)),
-            Some(FeedAnswer::Fresh(None)) => return (Some(LatestRelease::None), Origin::ArtCraftApi, Some(Source::Feed)),
-            Some(FeedAnswer::AskGitHub) | None => {}
+            // The feed can lag GitHub by some minutes after a release. A check the user pressed
+            // looks past it when GitHub's quota-free redirect names something newer (#91).
+            Some(FeedAnswer::Fresh(found)) if !(force && feed_is_behind(source, &repo, found.as_ref())) => {
+                return (Some(found.map_or(LatestRelease::None, LatestRelease::Found)), Origin::ArtCraftApi, Some(Source::Feed));
+            }
+            Some(FeedAnswer::Fresh(_) | FeedAnswer::AskGitHub) | None => {}
         }
     }
-    let repo = feed_repo(feed, app);
     let due = {
         let mut asked = shared.github_asked.lock().unwrap_or_else(PoisonError::into_inner);
         let due = force || asked.get(app.id).is_none_or(|t| now - t >= fallback.github_every);
@@ -752,6 +831,16 @@ fn latest_for(
         (Some(answer.latest), Origin::GitHub, Some(answer.source))
     } else {
         (source.cached(&repo, pre), Origin::GitHub, None)
+    }
+}
+
+/// Whether GitHub names a newer stable release of `repo` than the feed's `latest` (`None`: the
+/// feed says there is none). `false` whenever the redirect can't be read: the feed then stands.
+fn feed_is_behind(source: &dyn ReleaseSource, repo: &str, latest: Option<&Release>) -> bool {
+    let Some(newest) = source.newest_tag(repo).and_then(|tag| version::parse(&tag)) else { return false };
+    match latest.and_then(|r| r.version.as_ref()) {
+        Some(feed) => version::is_newer(&newest, feed),
+        None => true,
     }
 }
 
@@ -836,8 +925,12 @@ fn fetch_feed(http: &Http, paths: &Paths, url: &str, throttle: &Mutex<FeedThrott
 fn feed_url() -> String {
     std::env::var("ARTCRAFT_LAUNCHER_FEED_URL")
         .ok()
-        .filter(|u| u.starts_with("https://") || is_loopback(u))
+        .filter(|u| feed_url_override_allowed(u, cfg!(feature = "local-mirror")))
         .unwrap_or_else(|| artcraft_launcher_core::feed::FEED_URL.to_string())
+}
+
+fn feed_url_override_allowed(url: &str, allow_https: bool) -> bool {
+    is_loopback(url) || (allow_https && url.starts_with("https://"))
 }
 
 /// `http://<loopback host>:<port>` and an optional path: the host must be exactly 127.0.0.1,
@@ -1057,7 +1150,17 @@ mod tests {
     use artcraft_launcher_core::protocol::LatestRelease;
 
     use super::*;
+
     use crate::source::Answer;
+
+    #[test]
+    fn feed_url_overrides_are_loopback_only_outside_local_mirror_builds() {
+        assert!(feed_url_override_allowed("http://127.0.0.1:8787/release_info.json", false));
+        assert!(feed_url_override_allowed("http://localhost:8787/release_info.json", false));
+        assert!(!feed_url_override_allowed("https://staging.example/release_info.json", false));
+        assert!(feed_url_override_allowed("https://staging.example/release_info.json", true));
+        assert!(!feed_url_override_allowed("http://attacker.example/release_info.json", true));
+    }
 
     /// GitHub, counting how often it's asked.
     #[derive(Default)]
@@ -1268,14 +1371,75 @@ mod tests {
         assert_eq!(used, Some(Source::GitHubApi));
     }
 
+    /// Refresh looks past a feed that is behind GitHub (#91).
+    #[test]
+    fn refresh_asks_github_when_its_redirect_names_a_newer_release_than_the_feed() {
+        /// GitHub, whose quota-free redirect names `newest`.
+        struct Ahead {
+            newest: Option<&'static str>,
+            asked: AtomicUsize,
+        }
+        impl ReleaseSource for Ahead {
+            fn latest(&self, _repo: &str, _pre: bool) -> Answer {
+                self.asked.fetch_add(1, Ordering::SeqCst);
+                let found = Release { tag: "v0.7.0".into(), version: version::parse("0.7.0"), ..Release::default() };
+                Answer { latest: LatestRelease::Found(found), source: Source::GitHubApi }
+            }
+            fn cached(&self, _repo: &str, _pre: bool) -> Option<LatestRelease> {
+                None
+            }
+            fn rate_limited_until(&self) -> Option<i64> {
+                None
+            }
+            fn save(&self) {}
+            fn newest_tag(&self, _repo: &str) -> Option<String> {
+                self.newest.map(str::to_string)
+            }
+        }
+        let photo = CraftApp::by_id("photocraft").unwrap();
+        let feed = feed(); // vouches for PhotoCraft v0.6.0
+        let github = |newest| Ahead { newest, asked: AtomicUsize::new(0) };
+
+        // GitHub names the release the feed has: Refresh takes the feed's answer, asking nothing more.
+        let same = github(Some("v0.6.0"));
+        let (latest, _, used) = latest_for(photo, Some(&feed), LOADED, &same, &shared(), false, true, NOW);
+        assert!(matches!(latest, Some(LatestRelease::Found(ref r)) if r.tag == "v0.6.0"));
+        assert_eq!((used, same.asked.load(Ordering::SeqCst)), (Some(Source::Feed), 0));
+
+        // GitHub names a newer one: Refresh asks GitHub for it.
+        let ahead = github(Some("v0.7.0"));
+        let (latest, _, used) = latest_for(photo, Some(&feed), LOADED, &ahead, &shared(), false, true, NOW);
+        assert!(matches!(latest, Some(LatestRelease::Found(ref r)) if r.tag == "v0.7.0"), "{latest:?}");
+        assert_eq!((used, ahead.asked.load(Ordering::SeqCst)), (Some(Source::GitHubApi), 1));
+
+        // An automatic check never probes: the feed stands, as does a Refresh when the redirect
+        // can't be read, or names something older.
+        let (_, _, used) = latest_for(photo, Some(&feed), LOADED, &ahead, &shared(), false, false, NOW);
+        assert_eq!((used, ahead.asked.load(Ordering::SeqCst)), (Some(Source::Feed), 1));
+        for newest in [None, Some("v0.5.9"), Some("not a version")] {
+            let github = github(newest);
+            let (_, _, used) = latest_for(photo, Some(&feed), LOADED, &github, &shared(), false, true, NOW);
+            assert_eq!((used, github.asked.load(Ordering::SeqCst)), (Some(Source::Feed), 0), "{newest:?}");
+        }
+    }
+
     const APP: &str = "photocraft";
 
     /// A PhotoCraft release with one file per platform and format, so whichever this machine
     /// installs is there.
     fn release(version: &str) -> Release {
         let suffixes = ["-portable.zip", ".tar.gz", ".msi", ".dmg", ".AppImage", ".deb", ".rpm", ".flatpak"];
-        let tokens =
-            ["windows-x64", "windows-x86", "windows-arm64", "macos-universal", "linux-x86_64", "linux-aarch64", "linux-riscv64", "freebsd-x86_64"];
+        let tokens = [
+            "windows-x64",
+            "windows-x86",
+            "windows-arm64",
+            "macos-universal",
+            "linux-x86_64",
+            "linux-aarch64",
+            "linux-riscv64",
+            "freebsd-x86_64",
+            "freebsd-aarch64",
+        ];
         let assets = tokens
             .iter()
             .flat_map(|t| suffixes.iter().map(move |s| format!("{APP}-{version}-{t}{s}")))
@@ -1364,6 +1528,87 @@ mod tests {
             Event::ReadyToInstall { app, ready } if app == APP => Some(ready),
             _ => None,
         })
+    }
+
+    fn wait_until(mut ready: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !ready() {
+            assert!(Instant::now() < deadline, "the worker did not finish unwinding");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    fn panic_on_wake() -> (Waker, mpsc::Receiver<()>) {
+        let (sent, received) = mpsc::channel();
+        (
+            Arc::new(move || {
+                let _ = sent.send(());
+                panic!("injected worker panic")
+            }),
+            received,
+        )
+    }
+
+    #[test]
+    fn a_panicking_detection_worker_releases_its_busy_flag() {
+        let Some(platform) = native_platform() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let mut backend = backend(dir.path(), platform, None);
+        let (waker, woke) = panic_on_wake();
+        Arc::get_mut(&mut backend.shared).unwrap().waker = waker;
+
+        backend.detect_all();
+        woke.recv_timeout(Duration::from_secs(2)).unwrap();
+        wait_until(|| !backend.shared.detecting.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_panicking_check_worker_releases_its_busy_flag() {
+        let Some(platform) = native_platform() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let mut backend = backend(dir.path(), platform, Some(Arc::new(CountingGitHub::default())));
+        backend.http = Some(Http::new().unwrap());
+        let (waker, woke) = panic_on_wake();
+        Arc::get_mut(&mut backend.shared).unwrap().waker = waker;
+
+        backend.check(true);
+        woke.recv_timeout(Duration::from_secs(2)).unwrap();
+        wait_until(|| !backend.shared.checking.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_panicking_job_worker_removes_its_busy_entry() {
+        let Some(platform) = native_platform() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let mut backend = backend(dir.path(), platform, None);
+        let (waker, woke) = panic_on_wake();
+        Arc::get_mut(&mut backend.shared).unwrap().waker = waker;
+
+        backend.start_job(APP, Work::Uninstall);
+        woke.recv_timeout(Duration::from_secs(2)).unwrap();
+        wait_until(|| !backend.shared.jobs.lock().unwrap().contains_key(APP));
+    }
+
+    #[test]
+    fn job_finished_is_emitted_after_its_busy_entry_is_removed() {
+        let Some(platform) = native_platform() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let mut backend = backend(dir.path(), platform, None);
+        let shared: Arc<Mutex<Option<std::sync::Weak<Shared>>>> = Arc::new(Mutex::new(None));
+        let shared_for_waker = shared.clone();
+        let (sent, received) = mpsc::channel();
+        Arc::get_mut(&mut backend.shared).unwrap().waker = Arc::new(move || {
+            let Some(shared) = shared_for_waker.lock().unwrap().as_ref().and_then(std::sync::Weak::upgrade) else { return };
+            let finished = shared.events.lock().unwrap().iter().any(|event| matches!(event, Event::JobFinished { app, .. } if app == APP));
+            if finished {
+                let busy = shared.jobs.lock().unwrap().contains_key(APP);
+                let _ = sent.send(busy);
+            }
+        });
+        *shared.lock().unwrap() = Some(Arc::downgrade(&backend.shared));
+
+        backend.start_job(APP, Work::Uninstall);
+        assert!(!received.recv_timeout(Duration::from_secs(2)).unwrap());
     }
 
     /// Puts the planned download on disk, as a failed install leaves it.

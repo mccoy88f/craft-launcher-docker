@@ -37,11 +37,30 @@ fn main() -> ExitCode {
     // First, so the panic report and every start-up warning are recorded (`logging`).
     let logs = logging::install();
     logging::install_panic_hook();
+    // A copy of the launcher finishing a self-update: no window, log file or single-instance claim.
+    #[cfg(windows)]
+    if let Some(done) = artcraft_launcher_native::self_update::finish(&std::env::args_os().skip(1).collect::<Vec<_>>()) {
+        return if done.is_ok() { ExitCode::SUCCESS } else { ExitCode::FAILURE };
+    }
     // Detect system language in the background so the first frame can use it.
     artcraft_launcher_ui_egui::i18n::detect_system_lang_in_background();
     // Detect Discord protocol handler in the background without blocking startup.
     artcraft_launcher_native::process::ensure_discord_detection_started();
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `std::env::args` panics on an argument that is not UTF-8, and the launcher is started with
+    // whatever the desktop hands it: a login entry, a file manager, a terminal in a Latin-1
+    // locale. It only ever looks for the two flags below, so an argument it cannot read is one it
+    // would have ignored anyway — and a start-up that dies with "internal error: panicked at
+    // library/std/src/env.rs" instead is the worst of both.
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .filter_map(|a| match a.into_string() {
+            Ok(a) => Some(a),
+            Err(bad) => {
+                log::warn!("ignoring an argument that is not valid UTF-8: {}", bad.to_string_lossy());
+                None
+            }
+        })
+        .collect();
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("artcraft-launcher {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
@@ -71,6 +90,11 @@ fn main() -> ExitCode {
                 log::warn!("no log file: {e}");
             }
         }
+    }
+    if let Some(error) =
+        artcraft_launcher_native::paths::Paths::new().ok().and_then(|paths| artcraft_launcher_native::self_update::take_failure(&paths))
+    {
+        log::warn!("the last self-update didn't install: {error}");
     }
     let (tray_loop, woken) = sync_channel(1);
     let waker = Arc::new(Waker { window: Mutex::new(None), tray_loop, quit_pending: AtomicBool::new(false) });
@@ -154,7 +178,37 @@ fn native_options(hidden: bool) -> eframe::NativeOptions {
     } else if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
     }
-    eframe::NativeOptions { viewport, persist_window: true, wgpu_options: wgpu_options(), ..Default::default() }
+    // Persistence goes to the same file `settings_file` uses, so a portable suite keeps its
+    // settings and window state inside itself instead of in the user's profile.
+    eframe::NativeOptions {
+        viewport,
+        persist_window: true,
+        persistence_path: settings_file::path(APP_ID),
+        wgpu_options: within_adapter_limits(wgpu_options()),
+        ..Default::default()
+    }
+}
+
+/// Asks wgpu for no more than the GPU offers. egui requests wgpu's default limits on every backend
+/// but GL, and creating the device fails when the adapter falls short of any one of them: the
+/// Raspberry Pi 5's V3D driver allows 15 inter-stage shader variables against the default 16, and
+/// the launcher exited before the first frame. egui's own shaders need far less than either.
+fn within_adapter_limits(mut config: eframe::WgpuConfiguration) -> eframe::WgpuConfiguration {
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut config.wgpu_setup {
+        let egui_descriptor = Arc::clone(&setup.device_descriptor);
+        setup.device_descriptor = Arc::new(move |adapter| {
+            let mut descriptor = egui_descriptor(adapter);
+            descriptor.required_limits = fit_limits(descriptor.required_limits, &adapter.limits());
+            descriptor
+        });
+    }
+    config
+}
+
+/// `requested`, with each limit the adapter can't meet lowered (or raised, for alignments) to
+/// what it can.
+fn fit_limits(requested: eframe::wgpu::Limits, adapter: &eframe::wgpu::Limits) -> eframe::wgpu::Limits {
+    requested.or_worse_values_from(adapter)
 }
 
 /// wgpu's backend list. On Windows that is Direct3D 12 with GL as the fallback, not Vulkan:
@@ -258,9 +312,29 @@ fn wgpu_options() -> eframe::WgpuConfiguration {
     config
 }
 
+/// Returns wgpu's defaults, except that Intel Macs skip the indirect-call validation shaders
+/// ([`skips_indirect_validation`]).
 #[cfg(target_os = "macos")]
 fn wgpu_options() -> eframe::WgpuConfiguration {
-    eframe::WgpuConfiguration::default()
+    use eframe::wgpu::InstanceFlags;
+    let mut config = eframe::WgpuConfiguration::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut config.wgpu_setup
+        && skips_indirect_validation(std::env::consts::OS, cfg!(target_arch = "x86_64"))
+    {
+        setup.instance_descriptor.flags = setup.instance_descriptor.flags.difference(InstanceFlags::VALIDATION_INDIRECT_CALL).with_env();
+    }
+    config
+}
+
+/// wgpu compiles its indirect-call validation shaders inside `request_device`. On old Intel Macs
+/// on Big Sur and Monterey (Iris and Iris Pro among them), Metal's compiler fails on them with an
+/// internal error, the device is lost and the launcher exits at startup (#344). Intel Macs skip
+/// them, and other platforms keep wgpu's default. The launcher issues no indirect draws or
+/// dispatches. `WGPU_VALIDATION_INDIRECT_CALL=1` still turns them back on. PhotoCraft does the same
+/// (storytold/photocraft#3171).
+#[cfg(any(target_os = "macos", test))]
+fn skips_indirect_validation(os: &str, intel: bool) -> bool {
+    os == "macos" && intel
 }
 
 /// Wakes whatever is running the launcher: the window while there is one, the tray loop otherwise.
@@ -507,7 +581,7 @@ impl Launcher {
     fn start(&mut self, settings: Option<Settings>, waker: &Arc<Waker>) {
         self.started = true;
         if let Some(settings) = settings {
-            self.ui.settings = settings;
+            self.restore_saved_settings(settings);
         }
         self.waker = Some(waker.clone());
         let (wake, on_quit) = (waker.clone(), waker.clone());
@@ -516,6 +590,13 @@ impl Launcher {
             Err(e) => log::warn!("no tray icon: {e}"),
         }
         self.host.tray = self.tray.is_some();
+    }
+
+    fn restore_saved_settings(&mut self, mut settings: Settings) {
+        // `LauncherUi::new` sees defaults before the shell loads persisted settings. Filters
+        // removed from the 0.6 toolbar must be cleared at this later load boundary too.
+        settings.migrate();
+        self.ui.settings = settings;
     }
 
     /// Readies the launcher for a new window. Unless the launcher started in the tray, the first
@@ -709,13 +790,18 @@ impl eframe::App for Shell<'_> {
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting && !self.launcher.closed_to_tray {
             match on_close(self.launcher.tray.is_some(), self.launcher.ui.settings.close_to_tray, self.window_hides) {
                 OnClose::Hide => {
+                    self.launcher.ui.hidden_to_tray(&mut self.launcher.host);
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                     self.put_away(ctx);
                 }
-                OnClose::ToTray => self.launcher.closed_to_tray = true,
+                OnClose::ToTray => {
+                    self.launcher.ui.hidden_to_tray(&mut self.launcher.host);
+                    self.launcher.closed_to_tray = true;
+                }
                 OnClose::Quit => {}
             }
         }
+        craft_quit::on_close_request(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -815,6 +901,21 @@ mod tests {
     }
 
     #[test]
+    fn saved_filters_are_migrated_when_desktop_settings_load() {
+        use artcraft_launcher_ui_egui::settings::Filter;
+
+        let (mut launcher, _show, _) = launcher();
+        // `start` also creates a native tray, which macOS requires on the main thread.
+        for (filter, expected) in
+            [(Filter::Installed, Filter::All), (Filter::Updates, Filter::All), (Filter::NotInstalled, Filter::All), (Filter::Hidden, Filter::Hidden)]
+        {
+            launcher.restore_saved_settings(Settings { filter, last_check: Some(NOW), ..Settings::default() });
+            assert_eq!(launcher.ui.settings.filter, expected, "{filter:?}");
+            assert_eq!(launcher.ui.settings.last_check, Some(NOW));
+        }
+    }
+
+    #[test]
     fn a_wayland_window_cannot_hide() {
         assert!(!window_can_hide(Some(RawDisplayHandle::Wayland(WaylandDisplayHandle::new(NonNull::dangling())))));
     }
@@ -900,12 +1001,14 @@ mod tests {
         // Setting the UI up asked for one immediate run.
         assert!(launcher.tick_in_tray().is_empty());
         let pause = Duration::from_millis(200);
+        // Before the spawn: the waker's pause starts there, and a busy machine can hold this thread
+        // back between the spawn and a later reading for long enough to fail the check below.
+        let started = Instant::now();
         let waking = std::thread::spawn(move || {
             std::thread::sleep(pause);
             let _ = show.send(single_instance::Request::Show);
             let _ = wake.try_send(());
         });
-        let started = Instant::now();
         assert!(launcher.wait_in_tray(&woken));
         assert!(started.elapsed() >= pause);
         // After the first run: once on the way in and once when woken. It slept in between.
@@ -1004,6 +1107,38 @@ mod tests {
     }
 
     #[test]
+    fn intel_macs_skip_the_indirect_validation_shaders() {
+        // Metal's compiler fails on them on Intel Iris Macs, losing the device (#344).
+        assert!(skips_indirect_validation("macos", true));
+        // Apple silicon, Windows, Linux and the BSDs keep wgpu's validation.
+        for (os, intel) in [("macos", false), ("windows", true), ("windows", false), ("linux", true), ("linux", false), ("freebsd", true)] {
+            assert!(!skips_indirect_validation(os, intel), "{os} intel={intel}");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn intel_macs_create_the_device_without_indirect_validation() {
+        use eframe::egui_wgpu::WgpuSetup;
+        use eframe::wgpu::InstanceFlags;
+        fn flags(config: eframe::WgpuConfiguration) -> InstanceFlags {
+            match config.wgpu_setup {
+                WgpuSetup::CreateNew(setup) => setup.instance_descriptor.flags,
+                WgpuSetup::Existing(_) => panic!("the launcher creates its own wgpu instance"),
+            }
+        }
+        let launcher = flags(wgpu_options());
+        if !cfg!(target_arch = "x86_64") {
+            // Apple silicon keeps wgpu's flags.
+            assert_eq!(launcher, flags(eframe::WgpuConfiguration::default()));
+        } else {
+            // The flag is off unless `WGPU_VALIDATION_INDIRECT_CALL` turns it back on.
+            let asked = std::env::var_os("WGPU_VALIDATION_INDIRECT_CALL").is_some_and(|v| v != "0");
+            assert_eq!(launcher.contains(InstanceFlags::VALIDATION_INDIRECT_CALL), asked, "{launcher:?}");
+        }
+    }
+
+    #[test]
     fn dx12_shaders_compile_with_fxc_unless_asked() {
         use eframe::egui_wgpu::WgpuSetup;
         use eframe::wgpu::Dx12Compiler;
@@ -1036,6 +1171,20 @@ mod tests {
         assert!(adapter_rank(Backend::Dx12, integrated, false) < warp);
         assert!(adapter_rank(Backend::Dx12, discrete, false) < adapter_rank(Backend::Dx12, integrated, false));
         assert!(adapter_rank(Backend::Dx12, integrated, true) < adapter_rank(Backend::Dx12, discrete, true));
+    }
+
+    #[test]
+    fn the_device_asks_for_no_more_than_the_gpu_offers() {
+        use eframe::wgpu::Limits;
+        // Raspberry Pi 5 (V3D 7.1, Mesa V3DV): wgpu's defaults want 16 inter-stage variables.
+        let v3d = Limits { max_inter_stage_shader_variables: 15, ..Limits::default() };
+        assert!(!Limits::default().check_limits(&v3d));
+        let fitted = fit_limits(Limits::default(), &v3d);
+        assert!(fitted.check_limits(&v3d));
+        assert_eq!(fitted.max_inter_stage_shader_variables, 15);
+        // A GPU that offers more still gets egui's request, not everything it has.
+        let generous = Limits { max_inter_stage_shader_variables: 28, ..Limits::default() };
+        assert_eq!(fit_limits(Limits::default(), &generous), Limits::default());
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]

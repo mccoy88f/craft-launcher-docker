@@ -79,6 +79,7 @@
 	Dismiss	閉じる
 	Update and restart	更新して再起動
 	A new version is available. Would you like to relaunch with the updated version?	新しいバージョンがあります。更新後のバージョンで再起動しますか？
+	A new version is available. Download it to replace this version?	新しいバージョンがあります。ダウンロードしてこのバージョンと置き換えますか？
 	Later	後で
 	What's new	新着情報
 	No notes were published with this release.	このリリースにはリリースノートが公開されていません。
@@ -97,6 +98,8 @@
 	Updates always use the format an app was installed with.	更新は常に、アプリをインストールしたときの形式で行われます。
 	Running in the background	バックグラウンドで実行
 	Keep running in the tray when the window is closed	ウィンドウを閉じてもトレイで実行し続ける
+	ArtCraft Launcher is still running	ArtCraft Launcher は実行中です
+	It's in the tray: open it or quit it from the tray icon, or turn this off in the settings.	トレイに入りました。トレイのアイコンから開くか終了できます。設定でこの動作を無効にすることもできます。
 	Show the window on the current desktop	現在のデスクトップにウィンドウを表示
 	Start ArtCraft Launcher when I log in	ログイン時に ArtCraft Launcher を起動
 	Community	コミュニティ
@@ -454,6 +457,7 @@ filter	Installed	インストール済み
 	Use default	既定を使用
 	New installs use this folder. Updates stay in their current location.	新しいインストールにはこのフォルダーを使用します。更新時は現在の場所を維持します。
 	Custom folders use AppImage on Linux.	Linuxで任意のフォルダーにインストールする場合はAppImageを使用します。
+	On Linux, custom folders use AppImage format.	Linuxで任意のフォルダーにインストールする場合はAppImageを使用します。
 	The system manages install locations here.	この環境ではシステムがインストール先を管理します。
 @msg	couldn't use install folder {path}: {reason}	インストール先フォルダー {path} を使用できませんでした: {reason}
 @msg	this release has no AppImage for a custom install folder	このリリースには任意のインストール先フォルダーで使用できるAppImageがありません

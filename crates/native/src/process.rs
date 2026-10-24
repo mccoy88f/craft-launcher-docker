@@ -1,6 +1,7 @@
 //! Starting programs: the Craft Apps themselves, the file manager, and helper tools.
 
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -113,6 +114,17 @@ pub fn spawn_detached(mut cmd: Command) -> Result<(), String> {
         let _ = child.wait();
     });
     Ok(())
+}
+
+/// Waits up to `timeout` for the process `pid` to exit, and says whether it has. A process that
+/// can't be opened, because it's gone or never was, counts as exited.
+#[cfg(windows)]
+pub fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
+    use winsafe::{HPROCESS, co};
+    let Ok(process) = HPROCESS::OpenProcess(co::PROCESS::SYNCHRONIZE, false, pid) else { return true };
+    // u32::MAX would mean INFINITE.
+    let ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX - 1);
+    process.WaitForSingleObject(Some(ms)).is_ok_and(|w| w == co::WAIT::OBJECT_0)
 }
 
 /// Whether this process is running inside a Flatpak container sandbox.
@@ -301,16 +313,16 @@ pub fn launch_binary(exe: &Path, args: &[&str]) -> Result<(), String> {
 
 /// Opens a file, folder or URL with the system's default handler.
 pub fn open(target: &std::ffi::OsStr) -> Result<(), String> {
-    spawn_detached(opener(target))
+    spawn_detached(opener(target)?)
 }
 
 /// The system's default opener for `target`: `explorer` on Windows, `open` on macOS, and
 /// `xdg-open` elsewhere (on the host, through `flatpak-spawn --host`, inside the sandbox).
-fn opener(target: &std::ffi::OsStr) -> Command {
+fn opener(target: &std::ffi::OsStr) -> Result<Command, String> {
     let mut cmd = if cfg!(target_os = "macos") {
         command("open")
     } else if cfg!(windows) {
-        command("explorer")
+        command(windows_system_program("explorer.exe")?)
     } else if in_sandbox() {
         let mut c = command("flatpak-spawn");
         c.arg("--host").arg("xdg-open");
@@ -319,7 +331,7 @@ fn opener(target: &std::ffi::OsStr) -> Command {
         command("xdg-open")
     };
     cmd.arg(target);
-    cmd
+    Ok(cmd)
 }
 
 /// Opens `primary_url` with the system's default handler. If opening fails (for example,
@@ -342,7 +354,13 @@ pub fn open_url_with_fallback(primary_url: &str, fallback_url: &str) {
 /// `explorer` exits with an error status even when it opens the target, so on Windows only a
 /// failure to start counts; the registry check in `detect_discord_scheme_handler` covers the rest.
 fn open_and_wait_success(target: &str, timeout: Duration) -> bool {
-    let mut cmd = opener(std::ffi::OsStr::new(target));
+    let mut cmd = match opener(std::ffi::OsStr::new(target)) {
+        Ok(cmd) => cmd,
+        Err(error) => {
+            log::warn!("couldn't resolve the system opener for {target}: {error}");
+            return false;
+        }
+    };
     if cfg!(windows) {
         return spawn_detached(cmd).is_ok();
     }
@@ -385,7 +403,7 @@ pub fn reveal(path: &Path) -> Result<(), String> {
 #[cfg(windows)]
 fn reveal_in_explorer(path: &Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    let mut cmd = command("explorer");
+    let mut cmd = command(windows_system_program("explorer.exe")?);
     // Passed raw: `arg` would wrap all of `/select,...` in quotes when the path has a space
     // (`C:\Program Files\...`), and Explorer then ignores the switch and opens Documents.
     // A quote in the path would end the quoted part early and let the rest reach Explorer as
@@ -418,10 +436,12 @@ fn explorer_select_arg(path: &Path) -> Option<std::ffi::OsString> {
 /// Whether a process started from inside `path` (an exe, an AppImage, or a `.app`) is running.
 pub fn is_running(path: &Path) -> bool {
     if cfg!(windows) {
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return false };
+        let Some(name) = path.file_name().and_then(OsStr::to_str) else { return false };
         let filter = format!("IMAGENAME eq {name}");
-        capture("tasklist", &["/FI", &filter, "/NH", "/FO", "CSV"], Duration::from_secs(5))
-            .is_some_and(|out| out.to_ascii_lowercase().contains(&name.to_ascii_lowercase()))
+        let Ok(tasklist) = windows_system_program(r"System32\tasklist.exe") else { return false };
+        let mut cmd = command(tasklist);
+        cmd.args(["/FI", &filter, "/NH", "/FO", "CSV"]);
+        run_command(cmd, "tasklist", Duration::from_secs(5)).ok().is_some_and(|out| out.to_ascii_lowercase().contains(&name.to_ascii_lowercase()))
     } else {
         let Some(p) = path.to_str() else { return false };
         let pattern = pgrep_pattern(p);
@@ -432,6 +452,17 @@ pub fn is_running(path: &Path) -> bool {
             capture("pgrep", &["-f", "--", &pattern], Duration::from_secs(5)).is_some()
         }
     }
+}
+
+fn windows_system_program(relative: &str) -> Result<PathBuf, String> {
+    let root = std::env::var_os("SystemRoot")
+        .filter(|root| !root.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| "Windows didn't provide its system folder".to_string())?;
+    if !root.is_absolute() {
+        return Err("Windows provided a non-absolute system folder".into());
+    }
+    Ok(root.join(relative))
 }
 
 /// Quote the path's metacharacters for pgrep's extended regular expression.
@@ -507,6 +538,15 @@ mod run_tests {
         if cfg!(windows) { ("cmd", ["/C", script]) } else { ("/bin/sh", ["-c", script]) }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn waiting_for_a_process_ends_when_it_exits() {
+        let mut child = Command::new("ping").args(["-n", "3", "127.0.0.1"]).stdout(Stdio::null()).spawn().unwrap();
+        assert!(!wait_for_exit(child.id(), Duration::from_millis(200)), "it's still running");
+        assert!(wait_for_exit(child.id(), Duration::from_secs(30)), "it has exited");
+        child.wait().unwrap();
+    }
+
     #[test]
     fn a_failing_helper_reports_its_own_error() {
         let (program, args) = shell(if cfg!(windows) { "echo no such image 1>&2 & exit /b 3" } else { "echo no such image >&2; exit 3" });
@@ -551,6 +591,14 @@ mod run_tests {
 #[cfg(test)]
 mod explorer_tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn system_helpers_use_absolute_system_paths() {
+        let root = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
+        assert_eq!(windows_system_program("explorer.exe").unwrap(), root.join("explorer.exe"));
+        assert_eq!(windows_system_program(r"System32\tasklist.exe").unwrap(), root.join(r"System32\tasklist.exe"));
+    }
 
     #[test]
     fn explorer_select_quotes_only_the_path() {
@@ -630,8 +678,10 @@ mod inherited_pipe_tests {
             std::io::stderr().write_all(&buffer).unwrap();
         }
         std::fs::write(dir.join("ready"), []).unwrap();
+        // Hold the pipes far longer than any deadline the test tries, so a capture that waited
+        // for them would show; the test's guard stops this early.
         let start = Instant::now();
-        while !dir.join("stop").exists() && start.elapsed() < Duration::from_secs(3) {
+        while !dir.join("stop").exists() && start.elapsed() < HOLD {
             std::thread::sleep(Duration::from_millis(10));
         }
         std::fs::write(dir.join("done"), []).unwrap();
@@ -642,8 +692,10 @@ mod inherited_pipe_tests {
     fn pipe_parent() {
         let dir = fixture_dir();
         let descendant = command(std::env::current_exe().unwrap()).args(fixture_args("pipe_holder", dir.to_str().unwrap())).spawn().unwrap();
+        std::fs::write(dir.join("spawned"), []).unwrap();
+        // No deadline of its own: run() kills this process at its deadline if it is too slow.
         let start = Instant::now();
-        while !dir.join("ready").exists() && start.elapsed() < Duration::from_secs(3) {
+        while !dir.join("ready").exists() && start.elapsed() < HOLD {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(dir.join("ready").exists(), "descendant did not fill both captured pipes");
@@ -652,13 +704,19 @@ mod inherited_pipe_tests {
         drop(descendant);
     }
 
+    /// How long the descendant holds the pipes when nothing stops it.
+    const HOLD: Duration = Duration::from_secs(120);
+
     struct StopHolder(tempfile::TempDir);
 
     impl Drop for StopHolder {
         fn drop(&mut self) {
             let _ = std::fs::write(self.0.path().join("stop"), []);
+            if !self.0.path().join("spawned").exists() {
+                return;
+            }
             let start = Instant::now();
-            while !self.0.path().join("done").exists() && start.elapsed() < Duration::from_secs(5) {
+            while !self.0.path().join("done").exists() && start.elapsed() < Duration::from_secs(30) {
                 std::thread::sleep(Duration::from_millis(10));
             }
         }
@@ -666,20 +724,33 @@ mod inherited_pipe_tests {
 
     #[test]
     fn exited_helper_does_not_wait_past_deadline_for_inherited_pipes() {
-        let holder = StopHolder(tempfile::tempdir().unwrap());
         let exe = std::env::current_exe().unwrap();
-        let args = fixture_args("pipe_parent", holder.0.path().to_str().unwrap());
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let start = Instant::now();
-        let result = run(exe.to_str().unwrap(), &args, Duration::from_secs(1));
-        let elapsed = start.elapsed();
-        assert!(holder.0.path().join("parent-returning").exists(), "direct child did not exit its fixture");
-        assert!(
-            matches!(&result, Err(error) if error.contains("didn't finish within")),
-            "expected a pipe deadline error; helper returned success: {}, elapsed: {elapsed:?}",
-            result.is_ok()
-        );
-        assert!(elapsed < Duration::from_secs(2), "capture exceeded its caller deadline: {elapsed:?}");
-        // The guard stops the finite descendant and waits for its completion marker on failures too.
+        // The direct child has to start a second test process and fill both pipes before the
+        // deadline, which can take seconds on a slow or emulated machine. An attempt where it
+        // didn't get that far says nothing about inherited pipes: retry with a longer deadline.
+        let mut deadline = Duration::from_secs(1);
+        loop {
+            let holder = StopHolder(tempfile::tempdir().unwrap());
+            let args = fixture_args("pipe_parent", holder.0.path().to_str().unwrap());
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let start = Instant::now();
+            let result = run(exe.to_str().unwrap(), &args, deadline);
+            let elapsed = start.elapsed();
+            if !holder.0.path().join("parent-returning").exists() && deadline < Duration::from_secs(16) {
+                deadline *= 4;
+                continue;
+            }
+            assert!(holder.0.path().join("parent-returning").exists(), "direct child did not exit its fixture within {deadline:?}");
+            assert!(
+                matches!(&result, Err(error) if error.contains("didn't finish within")),
+                "expected a pipe deadline error; helper returned success: {}, elapsed: {elapsed:?}",
+                result.is_ok()
+            );
+            // The descendant would hold the pipes for HOLD, far past this bound.
+            assert!(deadline * 2 < HOLD);
+            assert!(elapsed < deadline * 2, "capture exceeded its caller deadline {deadline:?}: {elapsed:?}");
+            // The guard stops the finite descendant and waits for its completion marker on failures too.
+            break;
+        }
     }
 }

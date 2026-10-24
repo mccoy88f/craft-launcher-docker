@@ -77,6 +77,7 @@
 	Dismiss	Ausblenden
 	Update and restart	Aktualisieren und neu starten
 	A new version is available. Would you like to relaunch with the updated version?	Eine neue Version ist verfügbar. Mit der neuen Version neu starten?
+	A new version is available. Download it to replace this version?	Eine neue Version ist verfügbar. Herunterladen, um diese Version zu ersetzen?
 	Later	Später
 	What's new	Neuigkeiten
 	No notes were published with this release.	Zu dieser Version wurden keine Hinweise veröffentlicht.
@@ -95,6 +96,8 @@
 	Updates always use the format an app was installed with.	Updates verwenden immer das Format, mit dem eine App installiert wurde.
 	Running in the background	Im Hintergrund ausführen
 	Keep running in the tray when the window is closed	Beim Schließen des Fensters im Infobereich weiterlaufen
+	ArtCraft Launcher is still running	ArtCraft Launcher läuft weiter
+	It's in the tray: open it or quit it from the tray icon, or turn this off in the settings.	Er ist im Infobereich: dort über das Symbol öffnen oder beenden, oder das in den Einstellungen abschalten.
 	Show the window on the current desktop	Fenster auf dem aktuellen Schreibtisch zeigen
 	Start ArtCraft Launcher when I log in	ArtCraft Launcher bei der Anmeldung starten
 	Community	Community
@@ -451,6 +454,7 @@ filter	Installed	Installiert
 	Use default	Standard verwenden
 	New installs use this folder. Updates stay in their current location.	Neue Installationen verwenden diesen Ordner. Updates bleiben am bisherigen Speicherort.
 	Custom folders use AppImage on Linux.	Für eigene Ordner wird unter Linux AppImage verwendet.
+	On Linux, custom folders use AppImage format.	Für eigene Ordner wird unter Linux AppImage verwendet.
 	The system manages install locations here.	Das System verwaltet hier die Installationsorte.
 @msg	couldn't use install folder {path}: {reason}	Installationsordner {path} konnte nicht verwendet werden: {reason}
 @msg	this release has no AppImage for a custom install folder	diese Veröffentlichung enthält kein AppImage für einen eigenen Installationsordner

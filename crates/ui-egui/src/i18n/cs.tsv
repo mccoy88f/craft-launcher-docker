@@ -64,6 +64,7 @@
 	Dismiss	Skrýt
 	Update and restart	Aktualizovat a restartovat
 	A new version is available. Would you like to relaunch with the updated version?	Je k dispozici nová verze. Chcete aplikaci znovu spustit s aktualizovanou verzí?
+	A new version is available. Download it to replace this version?	Je k dispozici nová verze. Chcete ji stáhnout a nahradit jí tuto verzi?
 	Later	Později
 	What's new	Co je nového
 	No notes were published with this release.	K tomuto vydání nebyly zveřejněny žádné poznámky.
@@ -82,6 +83,8 @@
 	Updates always use the format an app was installed with.	Aktualizace vždy použijí formát, ve kterém byla aplikace nainstalována.
 	Running in the background	Běh na pozadí
 	Keep running in the tray when the window is closed	Po zavření okna ponechat spuštěné v oznamovací oblasti
+	ArtCraft Launcher is still running	ArtCraft Launcher stále běží
+	It's in the tray: open it or quit it from the tray icon, or turn this off in the settings.	Je v oznamovací oblasti: otevřete ho nebo ukončete přes ikonu v ní, nebo to vypněte v nastavení.
 	Show the window on the current desktop	Zobrazit okno na aktuální ploše
 	Start ArtCraft Launcher when I log in	Spouštět ArtCraft Launcher po přihlášení
 	Community	Komunita
@@ -419,6 +422,7 @@ filter	Installed	Nainstalováno
 	Use default	Použít výchozí
 	New installs use this folder. Updates stay in their current location.	Nové instalace používají tuto složku. Aktualizace zůstávají v aktuálním umístění.
 	Custom folders use AppImage on Linux.	Vlastní složky používají v Linuxu formát AppImage.
+	On Linux, custom folders use AppImage format.	Vlastní složky používají v Linuxu formát AppImage.
 	The system manages install locations here.	Umístění instalací zde spravuje systém.
 @msg	couldn't use install folder {path}: {reason}	instalační složku {path} nelze použít: {reason}
 @msg	this release has no AppImage for a custom install folder	toto vydání nemá AppImage pro vlastní instalační složku
