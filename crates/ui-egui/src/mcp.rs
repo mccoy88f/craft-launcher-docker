@@ -40,8 +40,7 @@ impl LauncherUi {
     /// Copies `text` and says so.
     fn copy(&mut self, ui: &Ui, text: String) {
         ui.ctx().copy_text(text);
-        let ctx = ui.ctx().clone();
-        self.toast(&ctx, tl!("Copied to the clipboard"), false);
+        self.toast(tl!("Copied to the clipboard"), false);
     }
 
     /// The MCP box under an app's Website, GitHub and Releases buttons: one button-like row,
