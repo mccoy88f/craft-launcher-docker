@@ -519,3 +519,6 @@ materialcraft	Preview materials in 2D and on 3D models.	Tekintsd meg az anyagoka
 	Migrate Flatpak bundles to ArtCraft OCI (experimental)	Flatpak-csomagok átállítása ArtCraft OCI-ra (kísérleti)
 	On update, switch first party apps when the matching package is available. Otherwise, keep using bundles.	Frissítéskor állítsa át az ArtCraft alkalmazásait, ha elérhető a megfelelő csomag. Egyébként továbbra is önálló csomagokat használjon.
 	The OCI repository is a preview with GPG verification disabled.	Az OCI-tároló előzetes verzió, kikapcsolt GPG-ellenőrzéssel.
+	Installable apps	Telepíthető alkalmazások
+	Enable single-app PWAs	Alkalmazásonkénti PWA bekapcsolása
+	Each installed app can be installed on its own (Install app in the browser's menu, or Add to Home Screen), with its own name and icon, besides the launcher.	Minden telepített alkalmazás külön is telepíthető (Alkalmazás telepítése a böngésző menüjében vagy Hozzáadás a kezdőképernyőhöz), saját névvel és ikonnal, a launcher mellett.

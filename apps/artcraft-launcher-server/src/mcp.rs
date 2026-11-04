@@ -151,6 +151,9 @@ struct Settings {
     last_cleanup: i64,
     #[serde(default)]
     file_from_url: bool,
+    /// Each installed app's page is a PWA of its own (`routes::app_pwa`).
+    #[serde(default)]
+    app_pwa: bool,
     /// 1 once the files from before per-client folders were moved to [`PREVIOUS_FILES`]; 2 once
     /// sessions at once left at the old default (4) were raised to the new one.
     #[serde(default)]
@@ -179,6 +182,7 @@ impl Default for Settings {
             clients: Vec::new(),
             last_cleanup: 0,
             file_from_url: false,
+            app_pwa: false,
             layout: 2,
         }
     }
@@ -542,6 +546,7 @@ impl Mcp {
                 })
                 .collect(),
             file_from_url: s.file_from_url,
+            app_pwa: s.app_pwa,
             files: if admin { self.all_files(&s.tokens) } else { Vec::new() },
         }
     }
@@ -596,6 +601,16 @@ impl Mcp {
     /// Forgets the measured sizes (something was written or deleted).
     fn forget_sizes(&self) {
         self.sizes.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
+
+    /// Whether each installed app's page is installable as an app of its own.
+    pub fn app_pwa(&self) -> bool {
+        self.settings().app_pwa
+    }
+
+    pub fn set_app_pwa(&self, on: bool) {
+        self.settings().app_pwa = on;
+        self.save();
     }
 
     pub fn set_file_from_url(&self, on: bool) {

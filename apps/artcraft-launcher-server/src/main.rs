@@ -20,6 +20,7 @@ mod builds;
 mod hosting;
 mod mcp;
 mod oauth;
+mod pwa;
 mod releases;
 mod routes;
 

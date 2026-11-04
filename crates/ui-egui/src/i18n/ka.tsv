@@ -512,3 +512,6 @@ materialcraft	Preview materials in 2D and on 3D models.	მასალები
 	This server's launcher is updated with its Docker image.	ამ სერვერის ლაუნჩერი მის Docker image-თან ერთად ახლდება.
 	On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:	ამ სერვერზე ლაუნჩერი მის Docker image-თან ერთად ახლდება. თუ ჯერ არ განახლებულა, დაელოდეთ, სანამ ლაუნჩერის Docker ვერსია ამ გამოშვებას დაეწევა:
 	craft-launcher-docker on GitHub	craft-launcher-docker GitHub-ზე
+	Installable apps	დაყენებადი აპლიკაციები
+	Enable single-app PWAs	ცალკეული აპლიკაციების PWA-ს ჩართვა
+	Each installed app can be installed on its own (Install app in the browser's menu, or Add to Home Screen), with its own name and icon, besides the launcher.	თითოეული დაყენებული აპლიკაცია შეიძლება ცალკე დაყენდეს (ბრაუზერის მენიუში „აპლიკაციის დაყენება“ ან „მთავარ ეკრანზე დამატება“), საკუთარი სახელითა და ხატულით, ლაუნჩერის გარდა.

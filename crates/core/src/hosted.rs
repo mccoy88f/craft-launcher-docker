@@ -115,6 +115,10 @@ pub struct McpState {
     /// (`launcher_file_from_url`). Off unless the administrator turns it on.
     #[serde(default)]
     pub file_from_url: bool,
+    /// Each installed app's page is installable as an app of its own (a PWA with the app's name
+    /// and icon), besides the launcher's. Off unless the administrator turns it on.
+    #[serde(default)]
+    pub app_pwa: bool,
     /// Every client's work folder, with its files: for the administrator only (empty otherwise).
     #[serde(default)]
     pub files: Vec<McpFiles>,
@@ -288,6 +292,10 @@ pub enum McpChange {
     },
     /// Let MCP clients have the launcher download files from web addresses, or not.
     FileFromUrl {
+        on: bool,
+    },
+    /// Make each installed app's page installable as an app of its own (PWA), or not.
+    AppPwa {
         on: bool,
     },
     /// Build an app's MCP tool from its source code (for an app whose release can't be confined).

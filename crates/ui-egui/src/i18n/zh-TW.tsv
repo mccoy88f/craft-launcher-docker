@@ -472,3 +472,6 @@ materialcraft	Preview materials in 2D and on 3D models.	在 2D 與 3D 模型上�
 	This server's launcher is updated with its Docker image.	此伺服器的啟動器會隨其 Docker 映像檔更新。
 	On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:	在此伺服器上，啟動器會隨其 Docker 映像檔更新。如果尚未更新，請等候 Docker 版啟動器跟上此版本：
 	craft-launcher-docker on GitHub	GitHub 上的 craft-launcher-docker
+	Installable apps	可安裝的 App
+	Enable single-app PWAs	啟用單一 App PWA
+	Each installed app can be installed on its own (Install app in the browser's menu, or Add to Home Screen), with its own name and icon, besides the launcher.	每個已安裝的 App 都能單獨安裝（瀏覽器選單中的「安裝 App」或「加入主畫面」），擁有自己的名稱和圖示，與啟動器並存。

@@ -518,3 +518,6 @@ materialcraft	Preview materials in 2D and on 3D models.	Materialien in 2D und au
 	Migrate Flatpak bundles to ArtCraft OCI (experimental)	Flatpak-Bundles zu ArtCraft OCI migrieren (experimentell)
 	On update, switch first party apps when the matching package is available. Otherwise, keep using bundles.	ArtCraft-Apps beim Aktualisieren umstellen, wenn das passende Paket verfügbar ist. Andernfalls weiterhin Bundles verwenden.
 	The OCI repository is a preview with GPG verification disabled.	Das OCI-Repository ist eine Vorschau mit deaktivierter GPG-Prüfung.
+	Installable apps	Installierbare Apps
+	Enable single-app PWAs	PWAs für einzelne Apps aktivieren
+	Each installed app can be installed on its own (Install app in the browser's menu, or Add to Home Screen), with its own name and icon, besides the launcher.	Jede installierte App lässt sich einzeln installieren (App installieren im Browsermenü oder Zum Home-Bildschirm), mit eigenem Namen und Symbol, zusätzlich zum Launcher.

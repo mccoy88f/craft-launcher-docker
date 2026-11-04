@@ -50,6 +50,14 @@ Launcher** in the menu; Safari: **File → Add to Dock**; on phones: **Add to Ho
 Installed, it has its own icon and window. The apps are inside its scope (`/apps/…`), so they
 open in app windows too, with no browser bars at all.
 
+Each app can be a PWA of its own too: **Settings → Installable apps → Enable single-app PWAs**
+(the administrator; off by default). Then each installed app's page links to a manifest with the
+app's name, colour and 256 px icon (`/apps/<app>/__artcraft-pwa/`), so the browser offers to
+install it on its own, with its own icon on the desktop or home screen, opening straight into
+the app. Nothing in the app's files changes: the link is added to its `index.html` as it is
+served, and an app whose page already has a manifest of its own (EffectCraft) keeps that one.
+Like the launcher's, these PWAs have no service worker: they need the server to work.
+
 ## MCP: the apps for Claude and other MCP clients
 
 Each Craft App's command-line tool is also an MCP server. The launcher server can run it for

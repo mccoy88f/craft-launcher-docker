@@ -40,6 +40,7 @@ pub fn router(server: Shared) -> Router {
         .route("/mcp/{app}", post(mcp_post).get(mcp_get).delete(mcp_delete).layer(DefaultBodyLimit::max(32 << 20)))
         .route("/apps/{app}", get(app_redirect))
         .route("/apps/{app}/", get(app_file))
+        .route("/apps/{app}/__artcraft-pwa/{file}", get(app_pwa_file))
         .route("/apps/{app}/{*path}", get(app_file))
         .merge(crate::oauth::routes())
         .fallback(launcher_page)
@@ -176,6 +177,10 @@ async fn mcp_change(State(server): State<Shared>, headers: HeaderMap, Json(chang
         }
         McpChange::FileFromUrl { on } => {
             mcp.set_file_from_url(on);
+            Ok(())
+        }
+        McpChange::AppPwa { on } => {
+            mcp.set_app_pwa(on);
             Ok(())
         }
         McpChange::BuildFromSource { app: id } => app(&id).and_then(|a| mcp.build_from_source(a, &server.hosting)),
@@ -463,9 +468,59 @@ async fn app_file(State(server): State<Shared>, Path(params): Path<HashMap<Strin
         return (StatusCode::NOT_FOUND, format!("{} isn't installed on this server.", app.name)).into_response();
     };
     let prefix = format!("/apps/{}", app.id);
+    // Installable as an app of its own: its page links to the manifest.
+    let page = params.get("path").is_none_or(|p| p == "index.html");
+    if page
+        && server.mcp.app_pwa()
+        && let Some(response) = app_page_with_manifest(&site, app, request.method()).await
+    {
+        return response;
+    }
     // The app's page and its loader keep their names from version to version: everything is
     // revalidated (a 304 when unchanged), so an update reaches every visitor at once.
     serve(site, &prefix, request, false).await
+}
+
+/// An app's `index.html` with its manifest link ([`crate::pwa::add_manifest`]); `None` to serve
+/// the page as it is (no such page, too big, or a manifest of its own).
+async fn app_page_with_manifest(site: &std::path::Path, app: &CraftApp, method: &Method) -> Option<Response> {
+    let file = site.join("index.html");
+    let meta = tokio::fs::symlink_metadata(&file).await.ok()?;
+    if !meta.is_file() || meta.len() > crate::pwa::PAGE_MAX {
+        return None;
+    }
+    let html = tokio::fs::read_to_string(&file).await.ok()?;
+    let page = crate::pwa::add_manifest(&html, app)?;
+    let body = if method == Method::HEAD { Body::empty() } else { Body::from(page) };
+    let mut response = Response::new(body);
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("same-origin"));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    Some(response)
+}
+
+/// `GET /apps/<app>/__artcraft-pwa/<file>`: an installed app's manifest and icon, while
+/// Settings → Installable apps is on.
+async fn app_pwa_file(State(server): State<Shared>, Path((app, file)): Path<(String, String)>) -> Response {
+    let Some(app) = CraftApp::by_id(&app).filter(|a| server.hosting.site(a.id).is_some() && server.mcp.app_pwa()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let (kind, body): (&'static str, Body) = match file.as_str() {
+        "manifest.webmanifest" => ("application/manifest+json", Body::from(crate::pwa::manifest(app))),
+        "icon.png" => match crate::pwa::icon(app.id) {
+            Some(png) => ("image/png", Body::from(png)),
+            None => return StatusCode::NOT_FOUND.into_response(),
+        },
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let mut response = Response::new(body);
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(kind));
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
 }
 
 /// The launcher itself, for visitors.
@@ -562,6 +617,36 @@ mod tests {
         };
         std::fs::write(data.path().join("apps/photocraft/installed.json"), serde_json::to_vec(&record).unwrap()).unwrap();
         (web, data)
+    }
+
+    #[tokio::test]
+    async fn an_app_is_installable_on_its_own_only_when_turned_on() {
+        let (web, data) = sites();
+        let site = data.path().join("apps/photocraft/0.8.2-1");
+        std::fs::write(site.join("index.html"), "<html><head><title>PhotoCraft</title></head><body></body></html>").unwrap();
+        let server = server(web.path(), data.path(), Some("long enough"));
+        let router = router(server.clone());
+        // Off by default: the page as it is, and no manifest.
+        assert!(!text(send(&router, "GET", "/apps/photocraft/", &[]).await).await.contains("manifest"));
+        let manifest = "/apps/photocraft/__artcraft-pwa/manifest.webmanifest";
+        assert_eq!(send(&router, "GET", manifest, &[]).await.status(), StatusCode::NOT_FOUND);
+
+        server.mcp.set_app_pwa(true);
+        for page in ["/apps/photocraft/", "/apps/photocraft/index.html"] {
+            let page = send(&router, "GET", page, &[]).await;
+            assert_eq!(page.headers()[header::CACHE_CONTROL], "no-cache");
+            let body = text(page).await;
+            assert!(body.contains(r#"<link rel="manifest" href="__artcraft-pwa/manifest.webmanifest">"#), "{body}");
+        }
+        let m = send(&router, "GET", manifest, &[]).await;
+        assert_eq!(m.headers()[header::CONTENT_TYPE], "application/manifest+json");
+        let m: serde_json::Value = serde_json::from_str(&text(m).await).unwrap();
+        assert_eq!(m["name"], "PhotoCraft");
+        let icon = send(&router, "GET", "/apps/photocraft/__artcraft-pwa/icon.png", &[]).await;
+        assert_eq!(icon.headers()[header::CONTENT_TYPE], "image/png");
+        // Only for installed apps, and only those two files.
+        assert_eq!(send(&router, "GET", "/apps/vectorcraft/__artcraft-pwa/manifest.webmanifest", &[]).await.status(), StatusCode::NOT_FOUND);
+        assert_eq!(send(&router, "GET", "/apps/photocraft/__artcraft-pwa/other", &[]).await.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

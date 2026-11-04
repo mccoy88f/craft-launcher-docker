@@ -121,6 +121,7 @@ impl LauncherUi {
                 this.settings_language(ui);
                 this.settings_updates(ui);
                 this.settings_appearance(ui);
+                this.settings_app_pwa(ui);
             },
             |ui| {
                 let Ok(mut state) = state.try_borrow_mut() else { return };
@@ -377,5 +378,32 @@ impl LauncherUi {
             ui.checkbox(&mut self.settings.hide_community_apps, tl!("Hide community apps"));
         });
         self.settings.theme = theme_choice;
+    }
+
+    /// On a launcher server: each installed app installable as an app of its own (PWA), besides
+    /// the launcher. A setting of the server, so changing it asks a visitor to sign in first.
+    fn settings_app_pwa(&mut self, ui: &mut Ui) {
+        let Some(on) = self.mcp.as_ref().map(|m| m.app_pwa) else { return };
+        let t = Tokens::get(ui.ctx());
+        let mut next = on;
+        sheet::panel(ui, tl!("Installable apps"), |ui| {
+            ui.checkbox(&mut next, tl!("Enable single-app PWAs"));
+            ui.add(
+                egui::Label::new(
+                    RichText::new(tl!(
+                        "Each installed app can be installed on its own (Install app in the browser's menu, or Add to Home Screen), with its own name and icon, besides the launcher."
+                    ))
+                    .size(12.0)
+                    .color(t.muted),
+                )
+                .wrap(),
+            );
+            if self.backend.signed_in() == Some(false) {
+                ui.label(RichText::new(tl!("Sign in to change these.")).size(12.0).color(t.muted));
+            }
+        });
+        if next != on {
+            self.mcp_send(artcraft_launcher_core::hosted::McpChange::AppPwa { on: next });
+        }
     }
 }

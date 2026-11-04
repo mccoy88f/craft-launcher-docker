@@ -121,6 +121,7 @@ fn mcp_event() -> Event {
             oauth: false,
         }],
         file_from_url: false,
+        app_pwa: false,
         files: vec![
             McpFiles {
                 app: "photocraft".into(),

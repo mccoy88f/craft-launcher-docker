@@ -33,7 +33,7 @@ fn retention_label(days: u32) -> String {
 }
 
 impl LauncherUi {
-    fn mcp_send(&mut self, change: McpChange) {
+    pub(crate) fn mcp_send(&mut self, change: McpChange) {
         self.send(Command::Mcp(change));
     }
 
