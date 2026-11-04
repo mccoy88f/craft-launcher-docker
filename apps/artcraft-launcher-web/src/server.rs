@@ -360,7 +360,8 @@ impl Backend for ServerBackend {
             Command::McpDownload { app, client, path } => self.download(app, client, path),
             Command::McpUpload { app, client } => self.upload(app, client),
             // Desktop only: there are no folders to show or write over on the server.
-            Command::Reveal { .. } | Command::UpdateLauncher | Command::Replace { .. } => {}
+            // and the server hosts each app's latest browser build only, so no version to choose.
+            Command::Reveal { .. } | Command::UpdateLauncher | Command::Replace { .. } | Command::ListVersions { .. } => {}
         }
     }
 

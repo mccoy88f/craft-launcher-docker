@@ -76,6 +76,10 @@ fn look_up(source: &dyn ReleaseSource, prereleases: bool) -> Answer {
     let apps = SUITE
         .iter()
         .map(|app| {
+            // A community app isn't hosted here: don't even ask about its releases.
+            if !crate::hosting::hostable(app) {
+                return HostedRelease { id: app.id.to_string(), latest: LatestRelease::None };
+            }
             let answer = source.latest(app.repo, prereleases);
             if matches!(answer.latest, LatestRelease::Found(_)) {
                 used = answer.source;
@@ -134,5 +138,31 @@ mod tests {
         assert_eq!(answer.source, Source::GitHubPages);
         assert_eq!(answer.rate_limited_until, Some(42));
         assert_eq!(answer.launcher, None);
+    }
+
+    /// A community app's releases are never looked up: this server never hosts it.
+    #[test]
+    fn community_apps_are_not_looked_up() {
+        struct Asked(std::sync::Mutex<Vec<String>>);
+        impl ReleaseSource for Asked {
+            fn latest(&self, repo: &str, _prereleases: bool) -> SourceAnswer {
+                self.0.lock().unwrap().push(repo.to_string());
+                SourceAnswer { latest: LatestRelease::None, source: Source::GitHubApi }
+            }
+            fn cached(&self, _repo: &str, _prereleases: bool) -> Option<LatestRelease> {
+                None
+            }
+            fn rate_limited_until(&self) -> Option<i64> {
+                None
+            }
+            fn save(&self) {}
+        }
+        let asked = Asked(std::sync::Mutex::new(Vec::new()));
+        let _ = look_up(&asked, false);
+        let repos = asked.0.lock().unwrap();
+        assert!(!repos.is_empty());
+        assert!(repos.iter().all(|r| r.starts_with("storytold/")), "{repos:?}");
+        assert!(!crate::hosting::hostable(artcraft_launcher_core::catalog::CraftApp::by_id("solidcraft").unwrap()));
+        assert!(crate::hosting::hostable(artcraft_launcher_core::catalog::CraftApp::by_id("photocraft").unwrap()));
     }
 }

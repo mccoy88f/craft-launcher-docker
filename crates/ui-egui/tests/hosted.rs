@@ -79,6 +79,9 @@ fn events() -> Vec<Event> {
             source: InstallSource::Launcher,
             location: format!("apps/{}/", app.id),
             package: None,
+            externally_managed: false,
+            origin: None,
+            installation: None,
         });
         ev.push(Event::Detected { app: app.id.into(), installed: inst });
     }

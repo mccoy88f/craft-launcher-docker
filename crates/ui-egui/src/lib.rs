@@ -25,6 +25,7 @@ mod details;
 mod dialogs;
 pub mod i18n;
 pub mod icons;
+mod install_target;
 mod local_time;
 mod mcp;
 pub mod model;
@@ -34,6 +35,7 @@ pub mod settings;
 mod settings_dialog;
 mod sheet;
 pub mod theme;
+mod versions;
 mod views;
 mod widgets;
 

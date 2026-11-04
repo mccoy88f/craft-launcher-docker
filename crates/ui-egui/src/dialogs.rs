@@ -39,15 +39,21 @@ impl LauncherUi {
             Dialog::LauncherUpdate(r) => modal.show(ctx, |ui| close = self.launcher_update_dialog(ui, r)),
             Dialog::NewToken => modal.show(ctx, |ui| close = self.new_token_dialog(ui)),
             Dialog::TokenCreated(token) => modal.show(ctx, |ui| close = self.token_created_dialog(ui, token)),
+            Dialog::Versions(id) => modal.show(ctx, |ui| close = self.version_dialog(ui, id)),
         };
-        // A dialog that opened another one (Settings → New token) leaves that one showing.
-        if self.dialog.as_ref().is_some_and(|d| d.key() != dialog.key()) {
+        if self.dialog.as_ref().is_some_and(|active| active.key() != dialog.key()) {
+            // A control inside a dialog opened a different one (Settings → New token); don't
+            // restore the old dialog.
             return;
         }
         // A new token is shown once: only its button closes it, not Escape or a stray click.
         let keep = matches!(dialog, Dialog::TokenCreated(_));
         if close || (response.should_close() && !keep) {
             self.dialog = None;
+            if matches!(dialog, Dialog::Versions(_)) {
+                // Close, Escape or a click outside: a version chosen there is dropped.
+                self.revert_version_choice();
+            }
         } else {
             self.dialog = Some(dialog);
         }
@@ -114,7 +120,7 @@ impl LauncherUi {
         let Some(entry) = self.entry(id).cloned() else { return true };
         let Some(release) = entry.release().cloned() else { return true };
         let t = Tokens::get(ui.ctx());
-        let size = crate::sheet::size(ui.ctx(), vec2(880.0, 760.0));
+        let size = crate::sheet::size(ui.ctx(), vec2(880.0, 760.0) * self.notes_zoom.max(1.0));
         ui.set_width(size.x);
         ui.set_max_height(size.y);
         let date = release.published_at.map(|d| fmt(tl!("Released {date}"), &[("date", &crate::views::date_text(d))])).unwrap_or_default();
@@ -251,7 +257,7 @@ impl LauncherUi {
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if widgets::button(ui, tl!("Replace"), Kind::Danger, 110.0).clicked() {
-                    self.act_command(Command::Replace { app: id.to_string() });
+                    self.act_command(Command::Replace { app: id.to_string(), path: path.to_string() });
                     close = true;
                 }
                 if widgets::button(ui, tl!("Cancel"), Kind::Secondary, 90.0).clicked() {
@@ -270,8 +276,8 @@ impl LauncherUi {
         let Some(app) = self.entry(id).map(|e| e.app) else { return true };
         ui.set_width(440.0f32.min(ui.ctx().content_rect().width() - 80.0));
         Self::title(ui, None, app.name, tl!("Install folder"));
-        let default = self.settings.install_locations.root.as_deref().unwrap_or(tl!("System default"));
-        Self::folder_field(ui, folder, Some(default), host);
+        let default = self.settings.install_locations.root.clone().or_else(|| self.default_folder_for(id, host));
+        Self::folder_field(ui, folder, default.as_deref(), host);
         if self.platform.is_some_and(|p| p.os == Os::Linux) {
             ui.label(tl!("Custom folders use AppImage on Linux."));
         }

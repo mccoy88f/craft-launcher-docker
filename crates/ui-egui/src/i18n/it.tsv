@@ -13,7 +13,8 @@
 # Coverage: the whole interface: every menu string and tl! literal (complete_menus = true).
 # Left in English on purpose: product name "ArtCraft Launcher" (and its "Launcher" tag), suite
 # name "Craft App Suite", app names (PhotoCraft, LightCraft, FilmCraft, DesignCraft, VectorCraft,
-# PdfCraft, EffectCraft, WordCraft, DeckCraft, GridCraft, CADCraft, SoundCraft, FigCraft), "GitHub",
+# PdfCraft, EffectCraft, WordCraft, DeckCraft, GridCraft, CADCraft, SoundCraft, FigCraft,
+# TextureCraft, MaterialCraft, Craft Anything, SolidCraft), "GitHub",
 # "Discord".
 # Trailing "…" (U+2026) must be preserved. Placeholders {name}, {n}, {version}, {count}, {v},
 # {what}, {unit}, {real}, {e} must appear in translation.
@@ -459,3 +460,43 @@ column	Version	Versione
 	On this server the launcher is updated with its Docker image. If it hasn't been updated yet, wait for the Docker version of the launcher to catch up with this release:	Su questo server il launcher si aggiorna con la sua immagine Docker. Se non è ancora stato aggiornato, attendi che la versione Docker del launcher raggiunga questo rilascio:
 	craft-launcher-docker on GitHub	craft-launcher-docker su GitHub
 	More actions for {name}	Altre azioni per {name}
+	by {name}	di {name}
+	Pin to top	Fissa in alto
+	Unpin	Non fissare più
+	Pinned	Fissate
+	Reorder {name}	Riordina {name}
+	Move up	Sposta su
+	Move down	Sposta giù
+	Retry update	Riprova l'aggiornamento
+craft-anything	Find out how any software works, then craft your own	Scopri come funziona qualsiasi software, poi crea il tuo
+solidcraft	Parametric 3D CAD	CAD 3D parametrico
+column	Author	Autore
+	Choose version	Scegli la versione
+	latest {version}	ultima {version}
+	{version} (latest release)	{version} (ultima release)
+	Launcher version	Versione del launcher
+	Nightly	Nightly
+	Nightly (none published yet)	Nightly (nessuna ancora pubblicata)
+	Install version {version}	Installa la versione {version}
+	Download selected version	Scarica la versione scelta
+	Older launcher versions require a manual reinstall.	Le versioni precedenti del launcher vanno reinstallate a mano.
+	Your files may not open in older versions.	Le versioni precedenti potrebbero non aprire i tuoi file.
+	Enable automatic installs in Settings to follow new nightly builds.	Attiva le installazioni automatiche nelle Impostazioni per seguire le nuove build nightly.
+texturecraft	3D texture painting	Pittura di texture 3D
+texturecraft	Paint materials on 3D models and export textures.	Dipingi materiali sui modelli 3D ed esporta le texture.
+texturecraft	Materials	Materiali
+texturecraft	Mesh maps	Mappe della mesh
+texturecraft	Bake mesh maps and use smart materials.	Calcola le mappe della mesh e usa i materiali intelligenti.
+texturecraft	Paint textures on 3D models.	Dipingi texture sui modelli 3D.
+	Hide community apps	Nascondi le app della community
+materialcraft	Procedural material design	Progettazione procedurale di materiali
+materialcraft	Build materials with node graphs.	Costruisci materiali con grafi di nodi.
+materialcraft	Create tileable PBR materials and export texture maps.	Crea materiali PBR ripetibili senza giunture ed esporta le mappe delle texture.
+materialcraft	Node graphs	Grafi di nodi
+materialcraft	Combine noises, patterns and filters.	Combina rumori, motivi e filtri.
+materialcraft	Live previews	Anteprime dal vivo
+materialcraft	Preview materials in 2D and on 3D models.	Guarda l'anteprima dei materiali in 2D e sui modelli 3D.
+	Advanced	Avanzate
+	Migrate Flatpak bundles to ArtCraft OCI (experimental)	Migra i bundle Flatpak su ArtCraft OCI (sperimentale)
+	On update, switch first party apps when the matching package is available. Otherwise, keep using bundles.	All'aggiornamento, passa le app ufficiali al pacchetto corrispondente quando c'è. Altrimenti continua a usare i bundle.
+	The OCI repository is a preview with GPG verification disabled.	Il repository OCI è un'anteprima con la verifica GPG disattivata.

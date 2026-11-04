@@ -21,12 +21,23 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use artcraft_launcher_core::catalog::{CraftApp, SUITE};
+use artcraft_launcher_core::catalog::{AppKind, CraftApp, GITHUB_OWNER, SUITE};
 use artcraft_launcher_core::hosted::{FinishedJob, HostedApp, ServerState};
 use artcraft_launcher_core::platform::{PackageKind, Platform, pick_asset, web_bundle};
 use artcraft_launcher_core::protocol::{CANCELLED, JobPhase, PAUSED, PausedDownload};
 use artcraft_launcher_core::release::{self, Release};
 use artcraft_launcher_core::status::{InstallSource, Installed};
+
+/// Whether this server may host `app` and run its tool: only the official apps, whose releases
+/// come from `github.com/storytold/<app>`. A community app (SolidCraft) is listed by the launcher
+/// but never downloaded, unpacked or run here (AGENTS.md: the server's sources stay `storytold/`).
+pub fn hostable(app: &CraftApp) -> bool {
+    app.kind == AppKind::Official && app.repo.split_once('/').is_some_and(|(owner, _)| owner == GITHUB_OWNER)
+}
+
+fn refuse_unofficial(app: &CraftApp) -> Result<(), String> {
+    if hostable(app) { Ok(()) } else { Err(format!("{} is a community app: this server only hosts the Craft App Suite's own apps", app.name)) }
+}
 use artcraft_launcher_core::version;
 use artcraft_launcher_native::http::{self, Http, Stop, Transfer};
 use serde::{Deserialize, Serialize};
@@ -132,6 +143,9 @@ impl Hosting {
                         source: InstallSource::Launcher,
                         location: format!("{apps_url}{}/", app.id),
                         package: None,
+                        externally_managed: false,
+                        origin: None,
+                        installation: None,
                     }),
                     job: slot.and_then(|s| s.job),
                     paused: slot
@@ -214,6 +228,7 @@ impl Hosting {
     /// Starts installing (or updating to) `release` of `app` on a worker thread; `with_cli`: its
     /// command-line tool too (its MCP server is on).
     pub fn install(self: &Arc<Self>, app: &'static CraftApp, release: Release, with_cli: bool) -> Result<(), String> {
+        refuse_unofficial(app)?;
         let stop = self.begin(app, JobPhase::Downloading { done: 0, total: 0 })?;
         let this = self.clone();
         std::thread::spawn(move || {
@@ -227,6 +242,7 @@ impl Hosting {
     /// Starts fetching the command-line tool of the installed version of `app`, for its MCP
     /// server; `release` must be that version's.
     pub fn install_cli(self: &Arc<Self>, app: &'static CraftApp, release: Release) -> Result<(), String> {
+        refuse_unofficial(app)?;
         let Some(record) = self.lock().apps.get(app.id).and_then(|s| s.record.clone()) else {
             return Err(format!("{} isn't installed", app.name));
         };

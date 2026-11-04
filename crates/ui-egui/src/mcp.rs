@@ -342,7 +342,7 @@ impl LauncherUi {
         let mut days = mcp.retention_days;
         ui.horizontal(|ui| {
             ui.label(tl!("Delete files not changed for"));
-            egui::ComboBox::from_id_salt("mcp-retention").selected_text(retention_label(days)).width(120.0).show_ui(ui, |ui| {
+            craft_ui::ComboBox::from_id_salt("mcp-retention").selected_text(retention_label(days)).width(120.0).show_ui(ui, |ui| {
                 for d in RETENTION_DAYS {
                     ui.selectable_value(&mut days, d, retention_label(d));
                 }
@@ -354,7 +354,7 @@ impl LauncherUi {
         let mut quota = mcp.quota_bytes;
         ui.horizontal(|ui| {
             ui.label(tl!("Space per client"));
-            egui::ComboBox::from_id_salt("mcp-quota").selected_text(widgets::human_bytes(quota)).width(120.0).show_ui(ui, |ui| {
+            craft_ui::ComboBox::from_id_salt("mcp-quota").selected_text(widgets::human_bytes(quota)).width(120.0).show_ui(ui, |ui| {
                 for q in QUOTAS {
                     ui.selectable_value(&mut quota, q, widgets::human_bytes(q));
                 }
@@ -366,7 +366,7 @@ impl LauncherUi {
         let mut sessions = mcp.max_sessions;
         ui.horizontal(|ui| {
             ui.label(tl!("Sessions at once"));
-            egui::ComboBox::from_id_salt("mcp-sessions").selected_text(sessions.to_string()).width(80.0).show_ui(ui, |ui| {
+            craft_ui::ComboBox::from_id_salt("mcp-sessions").selected_text(sessions.to_string()).width(80.0).show_ui(ui, |ui| {
                 for s in SESSIONS {
                     ui.selectable_value(&mut sessions, s, s.to_string());
                 }
@@ -479,7 +479,7 @@ impl LauncherUi {
             Some(id) => artcraft_launcher_core::CraftApp::by_id(id).map_or_else(|| id.clone(), |a| a.name.to_string()),
         };
         let mut choice = self.token_form.app.clone();
-        egui::ComboBox::from_id_salt("token-apps").selected_text(label(&choice)).width(240.0).show_ui(ui, |ui| {
+        craft_ui::ComboBox::from_id_salt("token-apps").selected_text(label(&choice)).width(240.0).show_ui(ui, |ui| {
             ui.selectable_value(&mut choice, None, label(&None));
             for app in mcp.apps.iter().filter(|a| a.enabled) {
                 let id = Some(app.id.clone());

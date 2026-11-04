@@ -135,15 +135,17 @@ The first lines each app's tool writes about itself are in the log too (`<app> m
 
 The server tries each app's command-line tool once, confined to a work folder
 (`--automation-read-root` and `--automation-write-root`; for PdfCraft, its own `--root`, which
-confines every read and write too). One that refuses isn't run, since it could reach every file
+confines every read and write too; for MaterialCraft, its own `--read-root` and `--write-root`,
+which do the same). One that refuses isn't run, since it could reach every file
 the server can; the log says what it answered, and the app's **MCP server** box says **Not yet
 compatible with MCP**. Its next release that takes the options works as soon as the app is updated.
-As of 25 October 2026 (each app's latest release):
+As of 4 November 2026 (each app's latest release):
 
 | | Apps |
 |---|---|
-| Work | PhotoCraft 0.16, VectorCraft 0.17, EffectCraft 0.17, WordCraft 0.11, SoundCraft 0.13, PdfCraft 0.14, DesignCraft 0.13, DeckCraft 0.11, FigCraft 0.11 |
-| Not compatible yet (not in their code either) | FilmCraft 0.13, LightCraft 0.14, GridCraft 0.12, CadCraft 0.13 |
+| Work | PhotoCraft 0.20, VectorCraft 0.21, EffectCraft 0.21, WordCraft 0.15, SoundCraft 0.17, PdfCraft 0.18, DesignCraft 0.17, DeckCraft 0.15, FigCraft 0.15, TextureCraft 0.3, MaterialCraft 0.1 |
+| Not compatible yet (not in their code either) | FilmCraft 0.17, LightCraft 0.18, GridCraft 0.16, CADCraft 0.17, Craft Anything 0.3 |
+| Not hosted here | SolidCraft: a community app (`tangency-labs/solidcraft`), listed by the launcher but never downloaded or run by this server, which takes apps only from `storytold/` |
 
 DeckCraft before 0.8 and DesignCraft before 0.9 can still have their tool built from source
 (below); update them instead when you can.
@@ -168,6 +170,16 @@ For an app whose release isn't compatible but whose code on `main` is (the list 
 
 Without the `cli-builder` service, the box says it's needed. Remove the service (and the
 `launcher-builds` lines) if you don't want it.
+
+## The apps' own languages
+
+The launcher's page is in Italian (and thirteen other languages); each Craft App has its own
+interface languages, which the launcher doesn't change. As of 4 November 2026 (each app's code):
+
+| | Apps |
+|---|---|
+| Italian | PhotoCraft, VectorCraft, FilmCraft, LightCraft, PdfCraft, DesignCraft, FigCraft, WordCraft, GridCraft, CADCraft, TextureCraft |
+| English only, or no Italian yet | EffectCraft (Chinese, Japanese, Spanish and others in part), DeckCraft, SoundCraft, MaterialCraft, Craft Anything (Chinese, Czech, German, Russian and others) |
 
 ## Settings
 

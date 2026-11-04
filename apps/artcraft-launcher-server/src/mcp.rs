@@ -549,7 +549,7 @@ impl Mcp {
     /// How a command-line tool confines itself to a work folder: started that way, it answers
     /// `initialize` (releases from before an option reject it and exit). The Craft Apps' options
     /// (`--automation-read-root` and `--automation-write-root`) first, then the app's own where it
-    /// has one ([`OWN_ROOT`]). Tried once per tool; one that can't be confined is never run, since
+    /// has one ([`OWN_ROOT`], [`OWN_READ_WRITE_ROOTS`]). Tried once per tool; one that can't be confined is never run, since
     /// it could reach every file the server can.
     pub fn confinable(&self, app: &str, cli: &Path) -> Option<Confine> {
         if let Some(known) = self.confinable.lock().unwrap_or_else(PoisonError::into_inner).get(cli) {
@@ -558,6 +558,9 @@ impl Mcp {
         let mut ways = vec![Confine::Automation];
         if OWN_ROOT.contains(&app) {
             ways.push(Confine::Root);
+        }
+        if OWN_READ_WRITE_ROOTS.contains(&app) {
+            ways.push(Confine::ReadWrite);
         }
         let mut found = None;
         let mut why = String::new();
@@ -1341,17 +1344,27 @@ pub enum Confine {
     /// `--root DIR`: PdfCraft's own, which confines every read and write (PdfCraft 0.8.0 has it
     /// and not the others).
     Root,
+    /// `--read-root DIR --write-root DIR`: MaterialCraft's own (0.1.0 has these and not the Craft
+    /// Apps' options). Every file request goes through a capability handle on those folders, and
+    /// with neither given the tool has no file access at all.
+    ReadWrite,
 }
 
 /// Apps whose `mcp --root DIR` confines every read and write, for releases without the Craft
 /// Apps' options. Only apps whose documentation says so: elsewhere `--root` could mean anything.
 const OWN_ROOT: [&str; 1] = ["pdfcraft"];
 
+/// Apps whose `mcp --read-root DIR --write-root DIR` confines every read and write, for releases
+/// without the Craft Apps' options. Same rule as [`OWN_ROOT`]: only where the app's code and docs
+/// say so ("file access only below the roots").
+const OWN_READ_WRITE_ROOTS: [&str; 1] = ["materialcraft"];
+
 impl Confine {
     fn args(self, dir: &Path) -> Vec<std::ffi::OsString> {
         match self {
             Confine::Automation => vec!["--automation-read-root".into(), dir.into(), "--automation-write-root".into(), dir.into()],
             Confine::Root => vec!["--root".into(), dir.into()],
+            Confine::ReadWrite => vec!["--read-root".into(), dir.into(), "--write-root".into(), dir.into()],
         }
     }
 }
@@ -1778,6 +1791,26 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn materialcraft_may_use_its_own_read_and_write_roots() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, mcp) = mcp();
+        // Like MaterialCraft 0.1.0: `--read-root DIR --write-root DIR` works, the automation
+        // options don't.
+        let cli = dir.path().join("read-write-cli");
+        std::fs::write(
+            &cli,
+            "#!/bin/sh\n[ \"$2\" = --read-root ] && [ \"$4\" = --write-root ] || exit 1\nread line\necho '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(mcp.confinable("materialcraft", &cli), Some(Confine::ReadWrite));
+        let other = dir.path().join("read-write-cli-2");
+        std::fs::copy(&cli, &other).unwrap();
+        assert_eq!(mcp.confinable("deckcraft", &other), None, "--read-root is trusted only where it's documented");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn a_tool_built_from_source_stands_in_until_a_release_can_be_confined() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
@@ -1839,7 +1872,7 @@ mod tests {
     fn probe_real_tools() {
         let dir = tempfile::tempdir().unwrap();
         for cli in std::env::var("ARTCRAFT_PROBE_CLIS").unwrap_or_default().split(':').filter(|c| !c.is_empty()) {
-            for way in [Confine::Automation, Confine::Root] {
+            for way in [Confine::Automation, Confine::Root, Confine::ReadWrite] {
                 println!("{cli} {way:?}: {:?}", answers_confined(Path::new(cli), way, &dir.path().join("root")));
             }
         }
